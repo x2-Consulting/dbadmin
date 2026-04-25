@@ -1,0 +1,15 @@
+[Unit]
+Description=DB Admin (MariaDB web UI)
+After=network.target mariadb.service
+
+[Service]
+Type=simple
+User=xspader
+WorkingDirectory=/home/xspader/phpmyadmin
+EnvironmentFile=/home/xspader/phpmyadmin/.env.local
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
