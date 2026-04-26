@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.mjs",
     "build": "next build",
-    "start": "next start -p 3333"
+    "start": "NODE_ENV=production node server.mjs",
+    "generate-cert": "node scripts/generate-cert.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

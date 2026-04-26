@@ -9,11 +9,14 @@ function conn(req: NextRequest) { return req.nextUrl.searchParams.get('conn') ||
 export async function GET(req: NextRequest, { params }: { params: Params }) {
   const { db, table } = await params;
   const sp = req.nextUrl.searchParams;
-  const page = parseInt(sp.get('page') || '1');
-  const pageSize = parseInt(sp.get('pageSize') || '50');
+  const page = Math.max(1, parseInt(sp.get('page') || '1'));
+  const pageSize = Math.min(500, Math.max(1, parseInt(sp.get('pageSize') || '50')));
+  // Collect per-column filters: filter[colName]=value
+  const filters: Record<string, string> = {};
+  sp.forEach((val, key) => { if (key.startsWith('filter[') && key.endsWith(']')) filters[key.slice(7, -1)] = val; });
   try {
     const pool = await getConnPool(conn(req));
-    const { rows, total } = await getTableData(pool, db, table, page, pageSize);
+    const { rows, total } = await getTableData(pool, db, table, page, pageSize, filters);
     return NextResponse.json({ rows, total, page, pageSize });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

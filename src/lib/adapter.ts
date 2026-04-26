@@ -9,12 +9,22 @@ import type { QueryResult as PgResult } from 'pg';
 
 const isPg = (p: ConnPool) => p.config.type === 'postgres';
 
-// safe identifier quoting
 function qi(name: string, pg: boolean) {
-  return pg ? `"${name.replace(/"/g, '')}"` : `\`${name.replace(/`/g, '')}\``;
+  const safe = name.replace(/[^\w$]/g, '');
+  return pg ? `"${safe}"` : `\`${safe}\``;
 }
 
-// ─── Databases / schemas ─────────────────────────────────────────────────────
+function validateGrant(g: string): string {
+  const trimmed = g.trim().toUpperCase();
+  if (!/^[A-Z][A-Z ,]*$/.test(trimmed)) throw new Error(`Invalid privilege string: ${g}`);
+  return trimmed;
+}
+
+function assertWritable(pool: ConnPool) {
+  if (pool.config.readonly) throw new Error('Connection is read-only');
+}
+
+// ─── Databases / schemas ──────────────────────────────────────────────────────
 
 export async function listDatabases(pool: ConnPool): Promise<string[]> {
   if (isPg(pool)) {
@@ -31,7 +41,7 @@ export async function listDatabases(pool: ConnPool): Promise<string[]> {
   return rows.map(r => r.Database).filter(d => !skip.has(d));
 }
 
-// ─── Tables ──────────────────────────────────────────────────────────────────
+// ─── Tables ───────────────────────────────────────────────────────────────────
 
 export async function listTables(pool: ConnPool, db: string): Promise<string[]> {
   if (isPg(pool)) {
@@ -44,7 +54,22 @@ export async function listTables(pool: ConnPool, db: string): Promise<string[]> 
     return rows.map(r => r.table_name);
   }
   const [rows] = await pool.mysql!.query(
-    `SHOW TABLES FROM ${qi(db, false)}`
+    `SHOW FULL TABLES FROM ${qi(db, false)} WHERE Table_type = 'BASE TABLE'`
+  ) as [Record<string, string>[], unknown];
+  return rows.map(r => r[`Tables_in_${db}`]);
+}
+
+export async function listViews(pool: ConnPool, db: string): Promise<string[]> {
+  if (isPg(pool)) {
+    const { rows } = await pool.pg!.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.views
+       WHERE table_schema = $1 ORDER BY table_name`,
+      [db]
+    );
+    return rows.map(r => r.table_name);
+  }
+  const [rows] = await pool.mysql!.query(
+    `SHOW FULL TABLES FROM ${qi(db, false)} WHERE Table_type = 'VIEW'`
   ) as [Record<string, string>[], unknown];
   return rows.map(r => r[`Tables_in_${db}`]);
 }
@@ -52,22 +77,49 @@ export async function listTables(pool: ConnPool, db: string): Promise<string[]> 
 // ─── Row data ─────────────────────────────────────────────────────────────────
 
 export async function getTableData(
-  pool: ConnPool, db: string, table: string, page: number, pageSize: number
+  pool: ConnPool, db: string, table: string,
+  page: number, pageSize: number,
+  filters?: Record<string, string>
 ): Promise<{ rows: unknown[]; total: number }> {
   const offset = (page - 1) * pageSize;
-  if (isPg(pool)) {
-    const q = qi(db, true) + '.' + qi(table, true);
+  const pg = isPg(pool);
+  const q = qi(db, pg) + '.' + qi(table, pg);
+
+  if (pg) {
+    const filterEntries = Object.entries(filters ?? {}).filter(([, v]) => v.trim());
+    let whereSql = '';
+    const whereParams: string[] = [];
+    let paramIdx = 3;
+    if (filterEntries.length > 0) {
+      const clauses = filterEntries.map(([col, val]) => {
+        whereParams.push(`%${val}%`);
+        return `${qi(col, true)}::text ILIKE $${paramIdx++}`;
+      });
+      whereSql = 'WHERE ' + clauses.join(' AND ');
+    }
     const [cntRes, dataRes] = await Promise.all([
-      pool.pg!.query<{ total: string }>(`SELECT COUNT(*)::int AS total FROM ${q}`),
-      pool.pg!.query(`SELECT * FROM ${q} LIMIT $1 OFFSET $2`, [pageSize, offset]),
+      pool.pg!.query<{ total: string }>(`SELECT COUNT(*)::int AS total FROM ${q} ${whereSql}`, whereParams),
+      pool.pg!.query(`SELECT * FROM ${q} ${whereSql} LIMIT $1 OFFSET $2`, [pageSize, offset, ...whereParams]),
     ]);
     return { rows: dataRes.rows, total: parseInt(cntRes.rows[0].total) };
   }
-  const q = qi(db, false) + '.' + qi(table, false);
-  const [[countRow]] = await pool.mysql!.query(
-    `SELECT COUNT(*) as total FROM ${q}`
+
+  const filterEntries = Object.entries(filters ?? {}).filter(([, v]) => v.trim());
+  let whereSql = '';
+  const whereParams: string[] = [];
+  if (filterEntries.length > 0) {
+    const clauses = filterEntries.map(([col, val]) => {
+      whereParams.push(`%${val}%`);
+      return `${qi(col, false)} LIKE ?`;
+    });
+    whereSql = 'WHERE ' + clauses.join(' AND ');
+  }
+  const [[countRow]] = await pool.mysql!.execute(
+    `SELECT COUNT(*) as total FROM ${q} ${whereSql}`, whereParams
   ) as [Array<{ total: number }>, unknown];
-  const [rows] = await pool.mysql!.query(`SELECT * FROM ${q} LIMIT ${pageSize} OFFSET ${offset}`);
+  const [rows] = await pool.mysql!.execute(
+    `SELECT * FROM ${q} ${whereSql} LIMIT ? OFFSET ?`, [...whereParams, pageSize, offset]
+  ) as [unknown[], unknown];
   return { rows: rows as unknown[], total: countRow.total };
 }
 
@@ -135,27 +187,45 @@ export async function getTableStructure(
   return { columns, indexes };
 }
 
+// ─── DDL ──────────────────────────────────────────────────────────────────────
+
+export async function getCreateStatement(pool: ConnPool, db: string, table: string): Promise<string> {
+  if (isPg(pool)) {
+    const { columns, indexes } = await getTableStructure(pool, db, table);
+    const cols = columns.map(c => {
+      let def = `  ${qi(c.Field, true)} ${c.Type}`;
+      if (c.Extra === 'auto_increment') def += ' GENERATED ALWAYS AS IDENTITY';
+      if (c.Null === 'NO') def += ' NOT NULL';
+      if (c.Default !== null && c.Default !== undefined && c.Extra !== 'auto_increment') def += ` DEFAULT ${c.Default}`;
+      return def;
+    }).join(',\n');
+    const pks = columns.filter(c => c.Key === 'PRI').map(c => qi(c.Field, true)).join(', ');
+    const pkLine = pks ? `,\n  PRIMARY KEY (${pks})` : '';
+    return `CREATE TABLE ${qi(db, true)}.${qi(table, true)} (\n${cols}${pkLine}\n);`;
+  }
+  const q = qi(db, false) + '.' + qi(table, false);
+  const [[row]] = await pool.mysql!.query(`SHOW CREATE TABLE ${q}`) as [Array<Record<string, string>>, unknown];
+  return row['Create Table'] || '';
+}
+
 // ─── Insert / Update / Delete ─────────────────────────────────────────────────
 
 export async function insertRow(
   pool: ConnPool, db: string, table: string, data: Record<string, unknown>
 ): Promise<{ insertId?: number }> {
+  assertWritable(pool);
   const keys = Object.keys(data);
   const vals = Object.values(data);
   const q = qi(db, isPg(pool)) + '.' + qi(table, isPg(pool));
   if (isPg(pool)) {
     const cols = keys.map(k => qi(k, true)).join(', ');
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-    const res: PgResult = await pool.pg!.query(
-      `INSERT INTO ${q} (${cols}) VALUES (${placeholders}) RETURNING *`, vals
-    );
+    await pool.pg!.query(`INSERT INTO ${q} (${cols}) VALUES (${placeholders})`, vals);
     return { insertId: undefined };
   }
   const cols = keys.map(k => qi(k, false)).join(', ');
   const placeholders = keys.map(() => '?').join(', ');
-  const [result] = await pool.mysql!.execute(
-    `INSERT INTO ${q} (${cols}) VALUES (${placeholders})`, vals as string[]
-  );
+  const [result] = await pool.mysql!.execute(`INSERT INTO ${q} (${cols}) VALUES (${placeholders})`, vals as string[]);
   return { insertId: (result as ResultSetHeader).insertId };
 }
 
@@ -163,6 +233,7 @@ export async function updateRow(
   pool: ConnPool, db: string, table: string,
   fields: Record<string, unknown>, pk: Record<string, unknown>
 ): Promise<void> {
+  assertWritable(pool);
   const q = qi(db, isPg(pool)) + '.' + qi(table, isPg(pool));
   const fieldKeys = Object.keys(fields);
   const pkKeys = Object.keys(pk);
@@ -174,16 +245,14 @@ export async function updateRow(
   } else {
     const set = fieldKeys.map(k => `${qi(k, false)} = ?`).join(', ');
     const where = pkKeys.map(k => `${qi(k, false)} = ?`).join(' AND ');
-    await pool.mysql!.execute(
-      `UPDATE ${q} SET ${set} WHERE ${where}`,
-      [...Object.values(fields), ...Object.values(pk)] as string[]
-    );
+    await pool.mysql!.execute(`UPDATE ${q} SET ${set} WHERE ${where}`, [...Object.values(fields), ...Object.values(pk)] as string[]);
   }
 }
 
 export async function deleteRow(
   pool: ConnPool, db: string, table: string, pk: Record<string, unknown>
 ): Promise<void> {
+  assertWritable(pool);
   const q = qi(db, isPg(pool)) + '.' + qi(table, isPg(pool));
   const pkKeys = Object.keys(pk);
   if (isPg(pool)) {
@@ -192,9 +261,7 @@ export async function deleteRow(
     await pool.pg!.query(`DELETE FROM ${q} WHERE ${where}`, Object.values(pk));
   } else {
     const where = pkKeys.map(k => `${qi(k, false)} = ?`).join(' AND ');
-    await pool.mysql!.execute(
-      `DELETE FROM ${q} WHERE ${where} LIMIT 1`, Object.values(pk) as string[]
-    );
+    await pool.mysql!.execute(`DELETE FROM ${q} WHERE ${where} LIMIT 1`, Object.values(pk) as string[]);
   }
 }
 
@@ -224,6 +291,11 @@ export async function execQuery(pool: ConnPool, sql: string, db?: string): Promi
   if (Array.isArray(result)) return { type: 'select', rows: result, elapsed };
   const r = result as ResultSetHeader;
   return { type: 'write', affectedRows: r.affectedRows, insertId: r.insertId, elapsed };
+}
+
+export async function execExplain(pool: ConnPool, sql: string, db?: string): Promise<ExecResult> {
+  const explainSql = isPg(pool) ? `EXPLAIN (FORMAT JSON, ANALYZE false) ${sql}` : `EXPLAIN ${sql}`;
+  return execQuery(pool, explainSql, db);
 }
 
 // ─── Overview stats ───────────────────────────────────────────────────────────
@@ -283,7 +355,6 @@ export async function getOverviewStats(pool: ConnPool): Promise<OverviewStats> {
       })),
     };
   }
-  // MySQL / MariaDB
   const [[uptime], [version], [maxConn], [openConn], [dbSizes]] = await Promise.all([
     pool.mysql!.query(`SELECT VARIABLE_VALUE as val FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='Uptime'`) as Promise<[Array<{ val: string }>, unknown]>,
     pool.mysql!.query(`SELECT VARIABLE_VALUE as val FROM information_schema.GLOBAL_VARIABLES WHERE VARIABLE_NAME='version'`) as Promise<[Array<{ val: string }>, unknown]>,
@@ -387,8 +458,7 @@ export async function listUsers(pool: ConnPool): Promise<DbUser[]> {
     return rows as DbUser[];
   }
   const [rows] = await pool.mysql!.query(
-    `SELECT User, Host, plugin, password_expired, account_locked
-     FROM mysql.user ORDER BY User, Host`
+    `SELECT User, Host, plugin, password_expired, account_locked FROM mysql.user ORDER BY User, Host`
   );
   return rows as DbUser[];
 }
@@ -396,21 +466,20 @@ export async function listUsers(pool: ConnPool): Promise<DbUser[]> {
 export async function createUser(
   pool: ConnPool, user: string, host: string, password: string, grants: string[]
 ): Promise<void> {
+  assertWritable(pool);
   if (isPg(pool)) {
-    await pool.pg!.query(`CREATE USER "${user.replace(/"/g, '')}" WITH PASSWORD $1`, [password]);
-    for (const g of grants) {
-      await pool.pg!.query(`GRANT ${g} TO "${user.replace(/"/g, '')}"`);
-    }
+    const safeUser = user.replace(/[^\w$]/g, '');
+    await pool.pg!.query(`CREATE USER "${safeUser}" WITH PASSWORD $1`, [password]);
+    for (const g of grants) await pool.pg!.query(`GRANT ${validateGrant(g)} TO "${safeUser}"`);
   } else {
     await pool.mysql!.execute(`CREATE USER ?@? IDENTIFIED BY ?`, [user, host || '%', password]);
-    for (const g of grants) {
-      await pool.mysql!.query(`GRANT ${g} ON *.* TO ?@?`, [user, host || '%']);
-    }
+    for (const g of grants) await pool.mysql!.query(`GRANT ${validateGrant(g)} ON *.* TO ?@?`, [user, host || '%']);
     await pool.mysql!.query('FLUSH PRIVILEGES');
   }
 }
 
 export async function dropUser(pool: ConnPool, user: string, host: string): Promise<void> {
+  assertWritable(pool);
   if (isPg(pool)) {
     await pool.pg!.query(`DROP USER IF EXISTS "${user.replace(/"/g, '')}"`);
   } else {

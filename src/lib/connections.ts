@@ -2,8 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import mysql from 'mysql2/promise';
 import { Pool as PgPool } from 'pg';
+import { encryptPassword, decryptPassword } from './crypto';
 
 export type DbType = 'mariadb' | 'mysql' | 'postgres';
+export type SslMode = 'disable' | 'require' | 'verify';
 
 export interface ConnectionConfig {
   id: string;
@@ -13,8 +15,10 @@ export interface ConnectionConfig {
   port: number;
   user: string;
   password: string;
-  database?: string; // required for postgres, optional for mysql/mariadb
+  database?: string;
   ssl?: boolean;
+  sslMode?: SslMode;
+  readonly?: boolean;
 }
 
 export interface ConnPool {
@@ -35,6 +39,7 @@ function defaultConn(): ConnectionConfig {
     port: parseInt(process.env.DB_PORT || '3306'),
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASS || '',
+    readonly: process.env.DB_READONLY === 'true',
   };
 }
 
@@ -44,11 +49,15 @@ function ensureDataFile() {
   if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, '[]');
 }
 
+function decryptConfig(conn: ConnectionConfig): ConnectionConfig {
+  return { ...conn, password: decryptPassword(conn.password) };
+}
+
 export function listConnections(): ConnectionConfig[] {
   try {
     ensureDataFile();
     const saved: ConnectionConfig[] = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    return [defaultConn(), ...saved];
+    return [defaultConn(), ...saved.map(decryptConfig)];
   } catch {
     return [defaultConn()];
   }
@@ -57,17 +66,25 @@ export function listConnections(): ConnectionConfig[] {
 export function saveConnection(conn: ConnectionConfig): void {
   ensureDataFile();
   const existing = listConnections().filter(c => c.id !== 'default' && c.id !== conn.id);
-  fs.writeFileSync(DATA_FILE, JSON.stringify([...existing, conn], null, 2));
+  const toStore = { ...conn, password: encryptPassword(conn.password) };
+  const existingStored = existing.map(c => ({ ...c, password: encryptPassword(c.password) }));
+  fs.writeFileSync(DATA_FILE, JSON.stringify([...existingStored, toStore], null, 2));
 }
 
 export function removeConnection(id: string): void {
   ensureDataFile();
-  const remaining = listConnections().filter(c => c.id !== 'default' && c.id !== id);
-  fs.writeFileSync(DATA_FILE, JSON.stringify(remaining, null, 2));
+  const raw: ConnectionConfig[] = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  fs.writeFileSync(DATA_FILE, JSON.stringify(raw.filter(c => c.id !== id), null, 2));
   const p = pools.get(id);
   if (p?.mysql) p.mysql.end().catch(() => {});
   if (p?.pg) p.pg.end().catch(() => {});
   pools.delete(id);
+}
+
+function sslOptions(config: ConnectionConfig): object | undefined {
+  const mode = config.sslMode ?? (config.ssl ? 'require' : 'disable');
+  if (mode === 'disable') return undefined;
+  return { rejectUnauthorized: mode === 'verify' };
 }
 
 export async function getConnPool(id = 'default'): Promise<ConnPool> {
@@ -76,6 +93,8 @@ export async function getConnPool(id = 'default'): Promise<ConnPool> {
   const config = listConnections().find(c => c.id === id);
   if (!config) throw new Error(`Connection '${id}' not found`);
 
+  const ssl = sslOptions(config);
+
   if (config.type === 'postgres') {
     const pg = new PgPool({
       host: config.host,
@@ -83,7 +102,7 @@ export async function getConnPool(id = 'default'): Promise<ConnPool> {
       user: config.user,
       password: config.password,
       database: config.database || 'postgres',
-      ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+      ssl: ssl as import('pg').PoolConfig['ssl'],
       max: 10,
     });
     const pool: ConnPool = { config, pg };
@@ -102,7 +121,7 @@ export async function getConnPool(id = 'default'): Promise<ConnPool> {
         waitForConnections: true,
         connectionLimit: 10,
         timezone: '+00:00',
-        ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+        ssl: ssl as Record<string, unknown>,
       }),
     };
     pools.set(id, pool);

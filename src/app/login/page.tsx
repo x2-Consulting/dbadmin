@@ -1,13 +1,11 @@
 'use client';
 import { useState, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import { Database, Lock } from 'lucide-react';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -24,8 +22,7 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
-    router.push('/');
-    router.refresh();
+    window.location.href = '/';
   }
 
   return (

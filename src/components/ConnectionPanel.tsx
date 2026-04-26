@@ -1,10 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Database, Server } from 'lucide-react';
-import type { DbType } from '@/lib/connections';
+import { X, Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock } from 'lucide-react';
+import type { DbType, SslMode } from '@/lib/connections';
 import { useConn } from '@/context/ConnectionContext';
 
-interface ConnInfo { id: string; name: string; type: DbType; host: string; port: number; user: string; database?: string; }
+interface ConnInfo { id: string; name: string; type: DbType; host: string; port: number; user: string; database?: string; readonly?: boolean; }
 
 const TYPE_DEFAULTS: Record<DbType, { port: number; label: string; color: string }> = {
   mariadb:  { port: 3306,  label: 'MariaDB',    color: 'text-amber-400' },
@@ -12,7 +12,13 @@ const TYPE_DEFAULTS: Record<DbType, { port: number; label: string; color: string
   postgres: { port: 5432,  label: 'PostgreSQL',  color: 'text-sky-400' },
 };
 
-const EMPTY_FORM = { name: '', type: 'mariadb' as DbType, host: '127.0.0.1', port: 3306, user: '', password: '', database: '', ssl: false };
+const EMPTY_FORM = {
+  name: '', type: 'mariadb' as DbType,
+  host: '127.0.0.1', port: 3306,
+  user: '', password: '', database: '',
+  sslMode: 'disable' as SslMode,
+  readonly: false,
+};
 
 interface Props { onClose: () => void; }
 
@@ -43,7 +49,6 @@ export default function ConnectionPanel({ onClose }: Props) {
     setTestResult(null);
     setSaveError('');
     try {
-      // POST creates the pool, test it
       const r = await fetch('/api/connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -51,10 +56,9 @@ export default function ConnectionPanel({ onClose }: Props) {
       });
       const d = await r.json();
       if (d.error) setTestResult({ ok: false, message: d.error });
-      else setTestResult({ ok: true, message: d.connection ? 'Connected successfully' : 'Connection OK' });
-      // If test succeeded, remove from saved (we just want to test, not save yet)
-      if (d.connection) {
-        await fetch(`/api/connections/${d.connection.id}`, { method: 'DELETE' });
+      else {
+        setTestResult({ ok: true, message: 'Connected successfully' });
+        if (d.connection) await fetch(`/api/connections/${d.connection.id}`, { method: 'DELETE' });
       }
     } finally { setTesting(false); }
   }
@@ -86,7 +90,6 @@ export default function ConnectionPanel({ onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
           <div>
             <h2 className="text-sm font-semibold text-white">Connections</h2>
@@ -98,7 +101,6 @@ export default function ConnectionPanel({ onClose }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-3">
-          {/* Connection list */}
           {connections.map(c => {
             const meta = TYPE_DEFAULTS[c.type];
             const isActive = c.id === connId;
@@ -116,11 +118,12 @@ export default function ConnectionPanel({ onClose }: Props) {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-zinc-100 truncate">{c.name}</span>
                     {isActive && <span className="text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded-full shrink-0">Active</span>}
+                    {c.readonly && <Lock className="w-3 h-3 text-amber-400 shrink-0" aria-label="Read-only" />}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span className={`text-[11px] font-medium ${meta.color}`}>{meta.label}</span>
                     <span className="text-zinc-700">·</span>
-                    <span className="text-xs text-zinc-500 truncate font-mono">{c.user}@{c.host}:{c.port}{c.database ? `/${c.database}` : ''}</span>
+                    <span className="text-xs text-zinc-500 truncate font-mono">{c.user}@{c.host}{c.database ? `/${c.database}` : ''}</span>
                   </div>
                 </div>
                 {c.id !== 'default' && (
@@ -135,7 +138,6 @@ export default function ConnectionPanel({ onClose }: Props) {
             );
           })}
 
-          {/* Add connection form */}
           {adding ? (
             <div className="border border-zinc-700 rounded-xl p-4 space-y-3 bg-zinc-800/30">
               <h3 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">New Connection</h3>
@@ -194,18 +196,41 @@ export default function ConnectionPanel({ onClose }: Props) {
                       placeholder="postgres" />
                   </div>
                 )}
+
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">SSL mode</label>
+                  <div className="flex gap-2">
+                    {(['disable', 'require', 'verify'] as SslMode[]).map(mode => (
+                      <button key={mode} onClick={() => setForm(f => ({ ...f, sslMode: mode }))}
+                        className={`flex-1 py-1.5 rounded-lg border text-xs transition-colors ${
+                          form.sslMode === mode
+                            ? 'border-blue-500/50 bg-blue-500/10 text-blue-400'
+                            : 'border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                        }`}>
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                  {form.sslMode === 'require' && (
+                    <p className="text-[10px] text-zinc-600 mt-1">Encrypts traffic, skips certificate verification (self-signed certs OK).</p>
+                  )}
+                  {form.sslMode === 'verify' && (
+                    <p className="text-[10px] text-zinc-600 mt-1">Encrypts traffic and verifies the server certificate against trusted CAs.</p>
+                  )}
+                </div>
+
                 <div className="col-span-2 flex items-center gap-2">
-                  <input type="checkbox" id="ssl" checked={form.ssl} onChange={e => setForm(f => ({ ...f, ssl: e.target.checked }))}
-                    className="w-3.5 h-3.5 accent-blue-500" />
-                  <label htmlFor="ssl" className="text-xs text-zinc-400">Use SSL (skip certificate verification)</label>
+                  <input type="checkbox" id="readonly" checked={form.readonly} onChange={e => setForm(f => ({ ...f, readonly: e.target.checked }))}
+                    className="w-3.5 h-3.5 accent-amber-500" />
+                  <label htmlFor="readonly" className="text-xs text-zinc-400 flex items-center gap-1.5">
+                    <Lock className="w-3 h-3 text-amber-400" /> Read-only — disable all INSERT / UPDATE / DELETE / DDL
+                  </label>
                 </div>
               </div>
 
               {testResult && (
                 <div className={`flex items-center gap-2 p-2.5 rounded-lg text-xs ${
-                  testResult.ok
-                    ? 'bg-green-500/10 border border-green-500/20 text-green-400'
-                    : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                  testResult.ok ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'
                 }`}>
                   {testResult.ok ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
                   {testResult.message}

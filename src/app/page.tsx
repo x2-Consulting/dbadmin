@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ConnectionProvider } from '@/context/ConnectionContext';
 import Sidebar from '@/components/Sidebar';
 import TableBrowser from '@/components/TableBrowser';
@@ -8,14 +8,38 @@ import StructureView from '@/components/StructureView';
 import UserManager from '@/components/UserManager';
 import Overview from '@/components/Overview';
 import LiveStats from '@/components/LiveStats';
-import { LayoutList, Code2, Table2 } from 'lucide-react';
+import QueryHistory from '@/components/QueryHistory';
+import DDLEditor from '@/components/DDLEditor';
+import BackupRestore from '@/components/BackupRestore';
+import SavedQueries from '@/components/SavedQueries';
+import HelpDocs from '@/components/HelpDocs';
+import SearchPalette from '@/components/SearchPalette';
+import CreateTable from '@/components/CreateTable';
+import { LayoutList, Code2, Table2, Wrench } from 'lucide-react';
+import { useConn } from '@/context/ConnectionContext';
 
-type TableTab = 'data' | 'structure' | 'sql';
+type TableTab = 'data' | 'structure' | 'sql' | 'ddl';
 
 function App() {
+  const { connId } = useConn();
   const [selected, setSelected] = useState<{ db: string; table: string } | null>(null);
   const [view, setView] = useState<string>('overview');
   const [tableTab, setTableTab] = useState<TableTab>('data');
+  const [replaySql, setReplaySql] = useState<{ sql: string; db?: string } | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [createTableDb, setCreateTableDb] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(s => !s);
+      }
+      if (e.key === 'Escape') setShowSearch(false);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   function onSelect(db: string, table: string) {
     setSelected({ db, table });
@@ -23,15 +47,36 @@ function App() {
     setTableTab('data');
   }
 
+  function handleReplay(sql: string, db?: string) {
+    setReplaySql({ sql, db });
+    setView('sql');
+  }
+
+  const handleSearch = useCallback((db: string, table: string) => {
+    onSelect(db, table);
+  }, []);
+
   const tableTabs: { id: TableTab; label: string; icon: React.ReactNode }[] = [
     { id: 'data',      label: 'Data',      icon: <LayoutList className="w-3.5 h-3.5" /> },
     { id: 'structure', label: 'Structure', icon: <Table2 className="w-3.5 h-3.5" /> },
+    { id: 'ddl',       label: 'DDL',       icon: <Wrench className="w-3.5 h-3.5" /> },
     { id: 'sql',       label: 'SQL',       icon: <Code2 className="w-3.5 h-3.5" /> },
   ];
 
+  // Pass readonly status from connection to components that need it
+  // (connection info is fetched in sidebar; we pass it through context or props)
+  // For now, we propagate via connId change effects in the components themselves
+
   return (
     <div className="flex h-screen bg-[#09090b] overflow-hidden">
-      <Sidebar selected={selected} onSelect={onSelect} activeView={view} onView={setView} />
+      <Sidebar
+        selected={selected}
+        onSelect={onSelect}
+        activeView={view}
+        onView={setView}
+        onSearch={() => setShowSearch(true)}
+        onCreateTable={db => setCreateTableDb(db)}
+      />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {view === 'table' && selected && (
@@ -56,12 +101,44 @@ function App() {
           {view === 'overview' && <Overview />}
           {view === 'live'     && <LiveStats />}
           {view === 'users'    && <UserManager />}
-          {view === 'table' && selected && tableTab === 'data'      && <TableBrowser db={selected.db} table={selected.table} />}
-          {view === 'table' && selected && tableTab === 'structure' && <StructureView db={selected.db} table={selected.table} />}
-          {view === 'table' && selected && tableTab === 'sql'       && <SqlEditor db={selected.db} />}
-          {view === 'sql'   && <SqlEditor db={selected?.db} />}
+          {view === 'history'  && <QueryHistory onReplay={handleReplay} />}
+          {view === 'saved'    && <SavedQueries onReplay={handleReplay} />}
+          {view === 'backup'   && <BackupRestore />}
+          {view === 'help'     && <HelpDocs />}
+
+          {view === 'table' && selected && tableTab === 'data'      && (
+            <TableBrowser db={selected.db} table={selected.table} />
+          )}
+          {view === 'table' && selected && tableTab === 'structure' && (
+            <StructureView db={selected.db} table={selected.table} />
+          )}
+          {view === 'table' && selected && tableTab === 'ddl'       && (
+            <DDLEditor db={selected.db} table={selected.table} />
+          )}
+          {view === 'table' && selected && tableTab === 'sql'       && (
+            <SqlEditor db={selected.db} onNavigateHistory={() => setView('history')} />
+          )}
+          {view === 'sql' && (
+            <SqlEditor
+              key={replaySql ? `${replaySql.sql}-${connId}` : 'standalone'}
+              db={replaySql?.db ?? selected?.db}
+              initialSql={replaySql?.sql}
+              onNavigateHistory={() => setView('history')}
+            />
+          )}
         </div>
       </div>
+      {showSearch && (
+        <SearchPalette onNavigate={handleSearch} onClose={() => setShowSearch(false)} />
+      )}
+
+      {createTableDb && (
+        <CreateTable
+          db={createTableDb}
+          onClose={() => setCreateTableDb(null)}
+          onCreated={(db, table) => { setCreateTableDb(null); onSelect(db, table); }}
+        />
+      )}
     </div>
   );
 }
