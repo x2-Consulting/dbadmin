@@ -16,6 +16,7 @@ import HelpDocs from '@/components/HelpDocs';
 import SearchPalette from '@/components/SearchPalette';
 import CreateTable from '@/components/CreateTable';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import DropDatabaseModal from '@/components/DropDatabaseModal';
 import { LayoutList, Code2, Table2, Wrench } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
 
@@ -29,6 +30,7 @@ function App() {
   const [replaySql, setReplaySql] = useState<{ sql: string; db?: string } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [createTableDb, setCreateTableDb] = useState<string | null>(null);
+  const [dropDbTarget, setDropDbTarget] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -77,6 +79,7 @@ function App() {
         onView={setView}
         onSearch={() => setShowSearch(true)}
         onCreateTable={db => setCreateTableDb(db)}
+        onDropDb={db => setDropDbTarget(db)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -140,6 +143,18 @@ function App() {
           db={createTableDb}
           onClose={() => setCreateTableDb(null)}
           onCreated={(db, table) => { setCreateTableDb(null); onSelect(db, table); }}
+        />
+      )}
+
+      {dropDbTarget && (
+        <DropDatabaseModal
+          db={dropDbTarget}
+          onClose={() => setDropDbTarget(null)}
+          onDropped={db => {
+            setDropDbTarget(null);
+            if (selected?.db === db) { setSelected(null); setView('overview'); }
+          }}
+          onGoBackup={() => { setDropDbTarget(null); setView('backup'); }}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Database, Table2, Users, BarChart2, Activity, LogOut, Layers, ChevronsUpDown, Eye, Lock, HardDrive, Search, Bookmark, BookOpen, Plus } from 'lucide-react';
+import { ChevronRight, ChevronDown, Database, Table2, Users, BarChart2, Activity, LogOut, Layers, ChevronsUpDown, Eye, Lock, HardDrive, Search, Bookmark, BookOpen, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useConn } from '@/context/ConnectionContext';
 import ConnectionPanel from './ConnectionPanel';
@@ -12,6 +12,7 @@ interface Props {
   onView: (view: string) => void;
   onSearch: () => void;
   onCreateTable: (db: string) => void;
+  onDropDb: (db: string) => void;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -23,7 +24,7 @@ const TYPE_LABELS: Record<string, string> = {
   mariadb: 'MariaDB', mysql: 'MySQL', postgres: 'PostgreSQL',
 };
 
-export default function Sidebar({ selected, onSelect, activeView, onView, onSearch, onCreateTable }: Props) {
+export default function Sidebar({ selected, onSelect, activeView, onView, onSearch, onCreateTable, onDropDb }: Props) {
   const { connId, setConnId } = useConn();
   const [databases, setDatabases] = useState<string[]>([]);
   const [tables, setTables] = useState<Record<string, string[]>>({});
@@ -164,13 +165,22 @@ export default function Sidebar({ selected, onSelect, activeView, onView, onSear
                   )}
                 </button>
                 {!connInfo?.readonly && (
-                  <button
-                    onClick={() => onCreateTable(db)}
-                    title="Create table"
-                    className="opacity-0 group-hover/db:opacity-100 p-1 mr-1 rounded text-zinc-600 hover:text-blue-400 hover:bg-blue-500/10 transition-all shrink-0"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => onCreateTable(db)}
+                      title="Create table"
+                      className="opacity-0 group-hover/db:opacity-100 p-1 rounded text-zinc-600 hover:text-blue-400 hover:bg-blue-500/10 transition-all shrink-0"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); onDropDb(db); }}
+                      title="Drop database"
+                      className="opacity-0 group-hover/db:opacity-100 p-1 mr-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </>
                 )}
               </div>
 

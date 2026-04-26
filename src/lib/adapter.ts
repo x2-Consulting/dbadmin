@@ -41,6 +41,16 @@ export async function listDatabases(pool: ConnPool): Promise<string[]> {
   return rows.map(r => r.Database).filter(d => !skip.has(d));
 }
 
+export async function dropDatabase(pool: ConnPool, db: string): Promise<void> {
+  assertWritable(pool);
+  const pg = isPg(pool);
+  if (pg) {
+    await pool.pg!.query(`DROP SCHEMA ${qi(db, true)} CASCADE`);
+  } else {
+    await pool.mysql!.query(`DROP DATABASE ${qi(db, false)}`);
+  }
+}
+
 // ─── Tables ───────────────────────────────────────────────────────────────────
 
 export async function listTables(pool: ConnPool, db: string): Promise<string[]> {
