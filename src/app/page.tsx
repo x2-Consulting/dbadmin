@@ -15,9 +15,13 @@ import SavedQueries from '@/components/SavedQueries';
 import HelpDocs from '@/components/HelpDocs';
 import SearchPalette from '@/components/SearchPalette';
 import CreateTable from '@/components/CreateTable';
+import CreateDatabase from '@/components/CreateDatabase';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DropDatabaseModal from '@/components/DropDatabaseModal';
-import { LayoutList, Code2, Table2, Wrench } from 'lucide-react';
+import TableActions from '@/components/TableActions';
+import ImportModal from '@/components/ImportModal';
+import ProcessList from '@/components/ProcessList';
+import { LayoutList, Code2, Table2, Wrench, Upload } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
 
 type TableTab = 'data' | 'structure' | 'sql' | 'ddl';
@@ -30,7 +34,9 @@ function App() {
   const [replaySql, setReplaySql] = useState<{ sql: string; db?: string } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [createTableDb, setCreateTableDb] = useState<string | null>(null);
+  const [showCreateDb, setShowCreateDb] = useState(false);
   const [dropDbTarget, setDropDbTarget] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -80,6 +86,7 @@ function App() {
         onSearch={() => setShowSearch(true)}
         onCreateTable={db => setCreateTableDb(db)}
         onDropDb={db => setDropDbTarget(db)}
+        onCreateDb={() => setShowCreateDb(true)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -98,6 +105,22 @@ function App() {
                 {t.icon}{t.label}
               </button>
             ))}
+            <div className="ml-auto flex items-center gap-1 pb-1">
+              <button
+                onClick={() => setShowImport(true)}
+                className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors"
+                title="Import CSV into this table"
+              >
+                <Upload className="w-3.5 h-3.5" /> Import
+              </button>
+              <TableActions
+                db={selected.db}
+                table={selected.table}
+                onRenamed={newName => setSelected({ db: selected.db, table: newName })}
+                onDropped={() => { setSelected(null); setView('overview'); }}
+                onTruncated={() => setTableTab('data')}
+              />
+            </div>
           </div>
         )}
 
@@ -108,8 +131,9 @@ function App() {
             {view === 'users'    && <UserManager />}
             {view === 'history'  && <QueryHistory onReplay={handleReplay} />}
             {view === 'saved'    && <SavedQueries onReplay={handleReplay} />}
-            {view === 'backup'   && <BackupRestore />}
-            {view === 'help'     && <HelpDocs />}
+            {view === 'backup'     && <BackupRestore />}
+            {view === 'help'       && <HelpDocs />}
+            {view === 'processes'  && <ProcessList />}
 
             {view === 'table' && selected && tableTab === 'data'      && (
               <TableBrowser db={selected.db} table={selected.table} />
@@ -143,6 +167,22 @@ function App() {
           db={createTableDb}
           onClose={() => setCreateTableDb(null)}
           onCreated={(db, table) => { setCreateTableDb(null); onSelect(db, table); }}
+        />
+      )}
+
+      {showCreateDb && (
+        <CreateDatabase
+          onClose={() => setShowCreateDb(false)}
+          onCreated={() => setShowCreateDb(false)}
+        />
+      )}
+
+      {showImport && selected && (
+        <ImportModal
+          db={selected.db}
+          table={selected.table}
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); setTableTab('data'); }}
         />
       )}
 

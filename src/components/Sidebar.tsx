@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Database, Table2, Users, BarChart2, Activity, LogOut, Layers, ChevronsUpDown, Eye, Lock, HardDrive, Search, Bookmark, BookOpen, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Database, Table2, Users, BarChart2, Activity, LogOut, Layers, ChevronsUpDown, Eye, Lock, HardDrive, Search, Bookmark, BookOpen, Plus, Trash2, Cpu } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useConn } from '@/context/ConnectionContext';
 import ConnectionPanel from './ConnectionPanel';
@@ -13,6 +13,7 @@ interface Props {
   onSearch: () => void;
   onCreateTable: (db: string) => void;
   onDropDb: (db: string) => void;
+  onCreateDb: () => void;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -24,7 +25,7 @@ const TYPE_LABELS: Record<string, string> = {
   mariadb: 'MariaDB', mysql: 'MySQL', postgres: 'PostgreSQL',
 };
 
-export default function Sidebar({ selected, onSelect, activeView, onView, onSearch, onCreateTable, onDropDb }: Props) {
+export default function Sidebar({ selected, onSelect, activeView, onView, onSearch, onCreateTable, onDropDb, onCreateDb }: Props) {
   const { connId, setConnId } = useConn();
   const [databases, setDatabases] = useState<string[]>([]);
   const [tables, setTables] = useState<Record<string, string[]>>({});
@@ -124,11 +125,12 @@ export default function Sidebar({ selected, onSelect, activeView, onView, onSear
           </button>
 
           {[
-            { id: 'overview', label: 'Overview',   icon: BarChart2  },
-            { id: 'live',     label: 'Live Stats', icon: Activity   },
-            { id: 'saved',    label: 'Saved',      icon: Bookmark   },
-            { id: 'backup',   label: 'Backup',     icon: HardDrive  },
-            { id: 'help',     label: 'Help',       icon: BookOpen   },
+            { id: 'overview',   label: 'Overview',   icon: BarChart2  },
+            { id: 'live',       label: 'Live Stats', icon: Activity   },
+            { id: 'processes',  label: 'Processes',  icon: Cpu        },
+            { id: 'saved',      label: 'Saved',      icon: Bookmark   },
+            { id: 'backup',     label: 'Backup',     icon: HardDrive  },
+            { id: 'help',       label: 'Help',       icon: BookOpen   },
           ].map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => onView(id)}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
@@ -138,8 +140,17 @@ export default function Sidebar({ selected, onSelect, activeView, onView, onSear
             </button>
           ))}
 
-          <div className="pt-3 pb-1 px-3">
+          <div className="pt-3 pb-1 px-3 flex items-center justify-between">
             <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-widest">Databases</span>
+            {!connInfo?.readonly && (
+              <button
+                onClick={onCreateDb}
+                title="Create database"
+                className="p-0.5 rounded text-zinc-600 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {loadingDbs && (

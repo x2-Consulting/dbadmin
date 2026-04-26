@@ -564,6 +564,124 @@ export async function dropIndex(
   }
 }
 
+// ─── Create database ─────────────────────────────────────────────────────────
+
+export async function createDatabase(
+  pool: ConnPool, name: string, charset = 'utf8mb4', collation = 'utf8mb4_unicode_ci'
+): Promise<void> {
+  assertWritable(pool);
+  if (isPg(pool)) {
+    await pool.pg!.query(`CREATE SCHEMA ${qi(name, true)}`);
+  } else {
+    const cs = charset.replace(/[^\w]/g, '');
+    const co = collation.replace(/[^\w_]/g, '');
+    await pool.mysql!.query(`CREATE DATABASE ${qi(name, false)} CHARACTER SET ${cs} COLLATE ${co}`);
+  }
+}
+
+// ─── Table DDL operations ─────────────────────────────────────────────────────
+
+export async function dropTable(pool: ConnPool, db: string, table: string): Promise<void> {
+  assertWritable(pool);
+  const pg = isPg(pool);
+  const sql = `DROP TABLE ${qi(db, pg)}.${qi(table, pg)}`;
+  if (pg) await pool.pg!.query(sql); else await pool.mysql!.query(sql);
+}
+
+export async function truncateTable(pool: ConnPool, db: string, table: string): Promise<void> {
+  assertWritable(pool);
+  const pg = isPg(pool);
+  const sql = `TRUNCATE TABLE ${qi(db, pg)}.${qi(table, pg)}`;
+  if (pg) await pool.pg!.query(sql); else await pool.mysql!.query(sql);
+}
+
+export async function renameTable(
+  pool: ConnPool, db: string, oldName: string, newName: string
+): Promise<void> {
+  assertWritable(pool);
+  if (isPg(pool)) {
+    await pool.pg!.query(
+      `ALTER TABLE ${qi(db, true)}.${qi(oldName, true)} RENAME TO ${qi(newName, true)}`
+    );
+  } else {
+    await pool.mysql!.query(
+      `RENAME TABLE ${qi(db, false)}.${qi(oldName, false)} TO ${qi(db, false)}.${qi(newName, false)}`
+    );
+  }
+}
+
+// ─── Process list ─────────────────────────────────────────────────────────────
+
+export interface ProcessEntry {
+  id: number;
+  user: string;
+  host: string;
+  db: string | null;
+  command: string;
+  time: number;
+  state: string;
+  info: string | null;
+}
+
+export async function getProcessList(pool: ConnPool): Promise<ProcessEntry[]> {
+  if (isPg(pool)) {
+    const { rows } = await pool.pg!.query(
+      `SELECT pid::int AS id,
+              COALESCE(usename,'') AS user,
+              COALESCE(client_addr::text,'') AS host,
+              datname AS db,
+              COALESCE(state,'') AS command,
+              COALESCE(EXTRACT(EPOCH FROM (now()-query_start))::int, 0) AS time,
+              COALESCE(state,'') AS state,
+              query AS info
+       FROM pg_stat_activity
+       WHERE state IS NOT NULL
+       ORDER BY time DESC`
+    );
+    return rows as ProcessEntry[];
+  }
+  const [rows] = await pool.mysql!.query('SHOW FULL PROCESSLIST') as [Array<{
+    Id: number; User: string; Host: string; db: string | null;
+    Command: string; Time: number; State: string; Info: string | null;
+  }>, unknown];
+  return rows.map(r => ({
+    id: r.Id, user: r.User, host: r.Host, db: r.db,
+    command: r.Command, time: r.Time, state: r.State, info: r.Info,
+  }));
+}
+
+export async function killProcess(pool: ConnPool, id: number): Promise<void> {
+  if (isPg(pool)) {
+    await pool.pg!.query(`SELECT pg_terminate_backend($1)`, [id]);
+  } else {
+    await pool.mysql!.query(`KILL ${id}`);
+  }
+}
+
+// ─── CSV import ───────────────────────────────────────────────────────────────
+
+export async function importCSVRows(
+  pool: ConnPool, db: string, table: string,
+  headers: string[], rows: string[][]
+): Promise<{ imported: number }> {
+  assertWritable(pool);
+  const pg = isPg(pool);
+  const q = qi(db, pg) + '.' + qi(table, pg);
+  const cols = headers.map(h => qi(h, pg)).join(', ');
+  let imported = 0;
+  for (const row of rows) {
+    if (pg) {
+      const placeholders = row.map((_, i) => `$${i + 1}`).join(', ');
+      await pool.pg!.query(`INSERT INTO ${q} (${cols}) VALUES (${placeholders})`, row);
+    } else {
+      const placeholders = headers.map(() => '?').join(', ');
+      await pool.mysql!.execute(`INSERT INTO ${q} (${cols}) VALUES (${placeholders})`, row);
+    }
+    imported++;
+  }
+  return { imported };
+}
+
 // ─── SQL completions ──────────────────────────────────────────────────────────
 
 export async function getCompletions(

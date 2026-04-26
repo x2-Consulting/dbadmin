@@ -1,25 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnPool } from '@/lib/connections';
-import { listDatabases, createDatabase } from '@/lib/adapter';
+import { getProcessList, killProcess } from '@/lib/adapter';
 
 const connId = (req: NextRequest) => req.nextUrl.searchParams.get('conn') || 'default';
 
 export async function GET(req: NextRequest) {
   try {
     const pool = await getConnPool(connId(req));
-    const databases = await listDatabases(pool);
-    return NextResponse.json({ databases });
+    const processes = await getProcessList(pool);
+    return NextResponse.json({ processes });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }
 
-export async function POST(req: NextRequest) {
-  const { name, charset, collation } = await req.json();
-  if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 });
+export async function DELETE(req: NextRequest) {
+  const { id } = await req.json();
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   try {
     const pool = await getConnPool(connId(req));
-    await createDatabase(pool, name, charset, collation);
+    await killProcess(pool, Number(id));
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
