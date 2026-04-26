@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Pencil, Trash2, Plus, ChevronLeft, ChevronRight, RefreshCw, Download, Filter, X } from 'lucide-react';
+import { Pencil, Trash2, Plus, ChevronLeft, ChevronRight, RefreshCw, Download, Filter, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { useToast } from '@/context/ToastContext';
 import RowEditor from './RowEditor';
 import { useConn } from '@/context/ConnectionContext';
 
@@ -8,6 +9,7 @@ interface Props { db: string; table: string; readonly?: boolean; }
 
 export default function TableBrowser({ db, table, readonly }: Props) {
   const { connId } = useConn();
+  const { toast } = useToast();
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
@@ -20,12 +22,15 @@ export default function TableBrowser({ db, table, readonly }: Props) {
   const [structure, setStructure] = useState<Array<{ Field: string; Type: string; Key: string }>>([]);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [showFilters, setShowFilters] = useState(false);
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const buildUrl = useCallback((p = page) => {
     const sp = new URLSearchParams({ page: String(p), pageSize: String(pageSize), conn: connId });
     Object.entries(filters).forEach(([k, v]) => { if (v.trim()) sp.set(`filter[${k}]`, v); });
+    if (sortCol) { sp.set('sort', sortCol); sp.set('dir', sortDir); }
     return `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}?${sp}`;
-  }, [db, table, page, pageSize, connId, filters]);
+  }, [db, table, page, pageSize, connId, filters, sortCol, sortDir]);
 
   const load = useCallback(async (p = page) => {
     setLoading(true);
@@ -40,7 +45,7 @@ export default function TableBrowser({ db, table, readonly }: Props) {
     } finally { setLoading(false); }
   }, [buildUrl, page]);
 
-  useEffect(() => { setPage(1); setFilters({}); }, [db, table, connId]);
+  useEffect(() => { setPage(1); setFilters({}); setSortCol(null); setSortDir('asc'); }, [db, table, connId]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -57,16 +62,27 @@ export default function TableBrowser({ db, table, readonly }: Props) {
 
   async function deleteRow(row: Record<string, unknown>) {
     if (!confirm('Delete this row?')) return;
-    await fetch(
+    const r = await fetch(
       `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}?conn=${connId}`,
       { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pkOf(row)) }
     );
-    load();
+    const d = await r.json();
+    if (d.error) toast(d.error, 'error');
+    else { toast('Row deleted'); load(); }
   }
 
   function exportCSV() {
-    const url = `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/export?conn=${connId}&format=csv`;
-    window.location.href = url;
+    window.location.href = `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/export?conn=${connId}&format=csv`;
+  }
+
+  function exportJSON() {
+    window.location.href = `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/export?conn=${connId}&format=json`;
+  }
+
+  function toggleSort(col: string) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+    setPage(1);
   }
 
   function applyFilters() { setPage(1); load(1); }
@@ -103,7 +119,11 @@ export default function TableBrowser({ db, table, readonly }: Props) {
           </button>
           <button onClick={exportCSV}
             className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors">
-            <Download className="w-3.5 h-3.5" /> Export
+            <Download className="w-3.5 h-3.5" /> CSV
+          </button>
+          <button onClick={exportJSON}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors">
+            <Download className="w-3.5 h-3.5" /> JSON
           </button>
           <button onClick={() => load()} disabled={loading}
             className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors disabled:opacity-40">
@@ -165,7 +185,21 @@ export default function TableBrowser({ db, table, readonly }: Props) {
               <tr className="bg-zinc-900 border-b border-zinc-800">
                 {!readonly && <th className="w-12 px-3 py-2.5" />}
                 {columns.map(c => (
-                  <th key={c} className="px-3 py-2.5 text-left font-medium text-zinc-400 whitespace-nowrap">{c}</th>
+                  <th key={c} className="px-3 py-2.5 text-left whitespace-nowrap">
+                    <button
+                      onClick={() => toggleSort(c)}
+                      className="flex items-center gap-1 font-medium text-zinc-400 hover:text-zinc-100 transition-colors group"
+                    >
+                      {c}
+                      <span className="text-zinc-700 group-hover:text-zinc-500">
+                        {sortCol === c
+                          ? sortDir === 'asc'
+                            ? <ChevronUp className="w-3 h-3 text-blue-400" />
+                            : <ChevronDown className="w-3 h-3 text-blue-400" />
+                          : <ChevronUp className="w-3 h-3 opacity-0 group-hover:opacity-50" />}
+                      </span>
+                    </button>
+                  </th>
                 ))}
               </tr>
             </thead>

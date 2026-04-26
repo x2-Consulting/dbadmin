@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { X, Key } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
+import { useToast } from '@/context/ToastContext';
 
 interface Column { Field: string; Type: string; Key: string; }
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
 
 export default function RowEditor({ db, table, row, structure, pkColumns, onClose, onSaved }: Props) {
   const { connId } = useConn();
+  const { toast } = useToast();
   const isEdit = !!row;
   const [values, setValues] = useState<Record<string, string>>(() => {
     if (!row) return {};
@@ -37,10 +39,12 @@ export default function RowEditor({ db, table, row, structure, pkColumns, onClos
         const r = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...values, __pk: pk }) });
         const d = await r.json();
         if (d.error) { setError(d.error); return; }
+        toast('Row updated');
       } else {
         const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
         const d = await r.json();
         if (d.error) { setError(d.error); return; }
+        toast('Row inserted');
       }
       onSaved();
     } finally { setSaving(false); }

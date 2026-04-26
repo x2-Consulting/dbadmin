@@ -79,11 +79,14 @@ export async function listViews(pool: ConnPool, db: string): Promise<string[]> {
 export async function getTableData(
   pool: ConnPool, db: string, table: string,
   page: number, pageSize: number,
-  filters?: Record<string, string>
+  filters?: Record<string, string>,
+  orderBy?: string, orderDir?: 'asc' | 'desc'
 ): Promise<{ rows: unknown[]; total: number }> {
   const offset = (page - 1) * pageSize;
   const pg = isPg(pool);
   const q = qi(db, pg) + '.' + qi(table, pg);
+  const dir = orderDir === 'desc' ? 'DESC' : 'ASC';
+  const orderSql = orderBy ? ` ORDER BY ${qi(orderBy, pg)} ${dir}` : '';
 
   if (pg) {
     const filterEntries = Object.entries(filters ?? {}).filter(([, v]) => v.trim());
@@ -99,7 +102,7 @@ export async function getTableData(
     }
     const [cntRes, dataRes] = await Promise.all([
       pool.pg!.query<{ total: string }>(`SELECT COUNT(*)::int AS total FROM ${q} ${whereSql}`, whereParams),
-      pool.pg!.query(`SELECT * FROM ${q} ${whereSql} LIMIT $1 OFFSET $2`, [pageSize, offset, ...whereParams]),
+      pool.pg!.query(`SELECT * FROM ${q} ${whereSql}${orderSql} LIMIT $1 OFFSET $2`, [pageSize, offset, ...whereParams]),
     ]);
     return { rows: dataRes.rows, total: parseInt(cntRes.rows[0].total) };
   }
@@ -118,7 +121,7 @@ export async function getTableData(
     `SELECT COUNT(*) as total FROM ${q} ${whereSql}`, whereParams
   ) as [Array<{ total: number }>, unknown];
   const [rows] = await pool.mysql!.execute(
-    `SELECT * FROM ${q} ${whereSql} LIMIT ? OFFSET ?`, [...whereParams, pageSize, offset]
+    `SELECT * FROM ${q} ${whereSql}${orderSql} LIMIT ? OFFSET ?`, [...whereParams, pageSize, offset]
   ) as [unknown[], unknown];
   return { rows: rows as unknown[], total: countRow.total };
 }
@@ -127,11 +130,28 @@ export async function getTableData(
 
 interface ColumnInfo { Field: string; Type: string; Null: string; Key: string; Default: unknown; Extra: string; }
 interface IndexInfo  { Key_name: string; Column_name: string; Non_unique: number; Index_type: string; }
+export interface FKInfo  { column: string; ref_table: string; ref_column: string; on_update: string; on_delete: string; }
 
 export async function getTableStructure(
   pool: ConnPool, db: string, table: string
-): Promise<{ columns: ColumnInfo[]; indexes: IndexInfo[] }> {
+): Promise<{ columns: ColumnInfo[]; indexes: IndexInfo[]; foreignKeys: FKInfo[] }> {
   if (isPg(pool)) {
+    const { rows: fks } = await pool.pg!.query<FKInfo>(
+      `SELECT
+         kcu.column_name AS column,
+         ccu.table_name  AS ref_table,
+         ccu.column_name AS ref_column,
+         rc.update_rule  AS on_update,
+         rc.delete_rule  AS on_delete
+       FROM information_schema.key_column_usage kcu
+       JOIN information_schema.referential_constraints rc
+         ON rc.constraint_name = kcu.constraint_name
+        AND rc.constraint_schema = kcu.constraint_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON ccu.constraint_name = rc.unique_constraint_name
+      WHERE kcu.table_schema = $1 AND kcu.table_name = $2`,
+      [db, table]
+    );
     const { rows: cols } = await pool.pg!.query<ColumnInfo>(
       `SELECT
          c.column_name                                          AS "Field",
@@ -179,12 +199,27 @@ export async function getTableStructure(
        ORDER BY i.relname, a.attnum`,
       [db, table]
     );
-    return { columns: cols, indexes: idxs };
+    return { columns: cols, indexes: idxs, foreignKeys: fks };
   }
   const q = qi(db, false) + '.' + qi(table, false);
   const [columns] = await pool.mysql!.query(`DESCRIBE ${q}`) as [ColumnInfo[], unknown];
   const [indexes] = await pool.mysql!.query(`SHOW INDEX FROM ${q}`) as [IndexInfo[], unknown];
-  return { columns, indexes };
+  const [fkRows] = await pool.mysql!.execute(
+    `SELECT
+       kcu.COLUMN_NAME           AS \`column\`,
+       kcu.REFERENCED_TABLE_NAME AS ref_table,
+       kcu.REFERENCED_COLUMN_NAME AS ref_column,
+       rc.UPDATE_RULE             AS on_update,
+       rc.DELETE_RULE             AS on_delete
+     FROM information_schema.KEY_COLUMN_USAGE kcu
+     JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+       ON rc.CONSTRAINT_NAME   = kcu.CONSTRAINT_NAME
+      AND rc.CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA
+     WHERE kcu.TABLE_SCHEMA = ? AND kcu.TABLE_NAME = ?
+       AND kcu.REFERENCED_TABLE_NAME IS NOT NULL`,
+    [db, table]
+  ) as [FKInfo[], unknown];
+  return { columns, indexes, foreignKeys: fkRows };
 }
 
 // ─── DDL ──────────────────────────────────────────────────────────────────────
@@ -486,4 +521,76 @@ export async function dropUser(pool: ConnPool, user: string, host: string): Prom
     await pool.mysql!.execute(`DROP USER ?@?`, [user, host]);
     await pool.mysql!.query('FLUSH PRIVILEGES');
   }
+}
+
+// ─── Index management ─────────────────────────────────────────────────────────
+
+export async function createIndex(
+  pool: ConnPool, db: string, table: string,
+  name: string, columns: string[], unique: boolean
+): Promise<void> {
+  assertWritable(pool);
+  const pg = isPg(pool);
+  const q = qi(db, pg) + '.' + qi(table, pg);
+  const cols = columns.map(c => qi(c, pg)).join(', ');
+  const u = unique ? 'UNIQUE ' : '';
+  if (pg) {
+    await pool.pg!.query(`CREATE ${u}INDEX ${qi(name, true)} ON ${q} (${cols})`);
+  } else {
+    await pool.mysql!.query(`CREATE ${u}INDEX \`${name.replace(/`/g, '')}\` ON ${q} (${cols})`);
+  }
+}
+
+export async function dropIndex(
+  pool: ConnPool, db: string, table: string, name: string
+): Promise<void> {
+  assertWritable(pool);
+  if (isPg(pool)) {
+    await pool.pg!.query(`DROP INDEX IF EXISTS ${qi(name, true)}`);
+  } else {
+    await pool.mysql!.query(
+      `DROP INDEX \`${name.replace(/`/g, '')}\` ON ${qi(db, false)}.${qi(table, false)}`
+    );
+  }
+}
+
+// ─── SQL completions ──────────────────────────────────────────────────────────
+
+export async function getCompletions(
+  pool: ConnPool, db: string
+): Promise<{ tables: string[]; columns: Array<{ table: string; column: string }> }> {
+  if (isPg(pool)) {
+    const [tRes, cRes] = await Promise.all([
+      pool.pg!.query<{ table_name: string }>(
+        `SELECT table_name FROM information_schema.tables
+         WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`,
+        [db]
+      ),
+      pool.pg!.query<{ table_name: string; column_name: string }>(
+        `SELECT table_name, column_name FROM information_schema.columns
+         WHERE table_schema = $1 ORDER BY table_name, ordinal_position`,
+        [db]
+      ),
+    ]);
+    return {
+      tables: tRes.rows.map(r => r.table_name),
+      columns: cRes.rows.map(r => ({ table: r.table_name, column: r.column_name })),
+    };
+  }
+  const [tRows, cRows] = await Promise.all([
+    pool.mysql!.execute(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = ? AND table_type = 'BASE TABLE' ORDER BY table_name`,
+      [db]
+    ) as Promise<[Array<{ table_name: string }>, unknown]>,
+    pool.mysql!.execute(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = ? ORDER BY table_name, ordinal_position`,
+      [db]
+    ) as Promise<[Array<{ table_name: string; column_name: string }>, unknown]>,
+  ]);
+  return {
+    tables: tRows[0].map(r => r.table_name),
+    columns: cRows[0].map(r => ({ table: r.table_name, column: r.column_name })),
+  };
 }

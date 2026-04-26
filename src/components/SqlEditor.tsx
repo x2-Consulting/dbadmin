@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Play, Clock, AlertCircle, CheckCircle2, Search, Download, FlaskConical, RotateCcw, ShieldAlert, Bookmark, Check } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
@@ -54,6 +54,19 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
   const [saveName, setSaveName] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const editorRef = useRef<unknown>(null);
+  const completionsRef = useRef<{ tables: string[]; columns: string[] }>({ tables: [], columns: [] });
+  const disposableRef = useRef<{ dispose: () => void } | null>(null);
+
+  useEffect(() => {
+    if (!db || !connId) return;
+    fetch(`/api/completions?conn=${connId}&db=${encodeURIComponent(db)}`)
+      .then(r => r.json())
+      .then(d => { completionsRef.current = d; });
+  }, [db, connId]);
+
+  useEffect(() => {
+    return () => { disposableRef.current?.dispose(); };
+  }, []);
 
   const getActiveSql = () => {
     const editor = editorRef.current as {
@@ -233,9 +246,34 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
           language="sql"
           value={sql}
           onChange={v => setSql(v || '')}
-          onMount={editor => {
+          onMount={(editor, monaco) => {
             editorRef.current = editor;
             editor.addCommand(2048 | 3, () => runQuery());
+
+            disposableRef.current?.dispose();
+            disposableRef.current = monaco.languages.registerCompletionItemProvider('sql', {
+              triggerCharacters: [' ', '.', '\n'],
+              provideCompletionItems: () => {
+                const { tables, columns } = completionsRef.current;
+                const suggestions = [
+                  ...tables.map((t: string) => ({
+                    label: t,
+                    kind: monaco.languages.CompletionItemKind.Class,
+                    insertText: t,
+                    detail: 'table',
+                    range: undefined as never,
+                  })),
+                  ...columns.map((c: string) => ({
+                    label: c,
+                    kind: monaco.languages.CompletionItemKind.Field,
+                    insertText: c,
+                    detail: 'column',
+                    range: undefined as never,
+                  })),
+                ];
+                return { suggestions };
+              },
+            });
           }}
           theme="vs-dark"
           options={{

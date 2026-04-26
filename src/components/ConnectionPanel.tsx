@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock } from 'lucide-react';
 import type { DbType, SslMode } from '@/lib/connections';
 import { useConn } from '@/context/ConnectionContext';
+import { useToast } from '@/context/ToastContext';
 
 interface ConnInfo { id: string; name: string; type: DbType; host: string; port: number; user: string; database?: string; readonly?: boolean; }
 
@@ -24,6 +25,7 @@ interface Props { onClose: () => void; }
 
 export default function ConnectionPanel({ onClose }: Props) {
   const { connId, setConnId } = useConn();
+  const { toast } = useToast();
   const [connections, setConnections] = useState<ConnInfo[]>([]);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -78,6 +80,7 @@ export default function ConnectionPanel({ onClose }: Props) {
     setAdding(false);
     setForm(EMPTY_FORM);
     setSaving(false);
+    toast('Connection saved');
   }
 
   async function deleteConn(id: string) {
@@ -85,6 +88,7 @@ export default function ConnectionPanel({ onClose }: Props) {
     await fetch(`/api/connections/${id}`, { method: 'DELETE' });
     if (connId === id) setConnId('default');
     await loadConnections();
+    toast('Connection removed');
   }
 
   return (

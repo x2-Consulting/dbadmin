@@ -15,6 +15,7 @@ import SavedQueries from '@/components/SavedQueries';
 import HelpDocs from '@/components/HelpDocs';
 import SearchPalette from '@/components/SearchPalette';
 import CreateTable from '@/components/CreateTable';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { LayoutList, Code2, Table2, Wrench } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
 
@@ -98,34 +99,36 @@ function App() {
         )}
 
         <div className="flex-1 overflow-hidden">
-          {view === 'overview' && <Overview />}
-          {view === 'live'     && <LiveStats />}
-          {view === 'users'    && <UserManager />}
-          {view === 'history'  && <QueryHistory onReplay={handleReplay} />}
-          {view === 'saved'    && <SavedQueries onReplay={handleReplay} />}
-          {view === 'backup'   && <BackupRestore />}
-          {view === 'help'     && <HelpDocs />}
+          <ErrorBoundary>
+            {view === 'overview' && <Overview />}
+            {view === 'live'     && <LiveStats />}
+            {view === 'users'    && <UserManager />}
+            {view === 'history'  && <QueryHistory onReplay={handleReplay} />}
+            {view === 'saved'    && <SavedQueries onReplay={handleReplay} />}
+            {view === 'backup'   && <BackupRestore />}
+            {view === 'help'     && <HelpDocs />}
 
-          {view === 'table' && selected && tableTab === 'data'      && (
-            <TableBrowser db={selected.db} table={selected.table} />
-          )}
-          {view === 'table' && selected && tableTab === 'structure' && (
-            <StructureView db={selected.db} table={selected.table} />
-          )}
-          {view === 'table' && selected && tableTab === 'ddl'       && (
-            <DDLEditor db={selected.db} table={selected.table} />
-          )}
-          {view === 'table' && selected && tableTab === 'sql'       && (
-            <SqlEditor db={selected.db} onNavigateHistory={() => setView('history')} />
-          )}
-          {view === 'sql' && (
-            <SqlEditor
-              key={replaySql ? `${replaySql.sql}-${connId}` : 'standalone'}
-              db={replaySql?.db ?? selected?.db}
-              initialSql={replaySql?.sql}
-              onNavigateHistory={() => setView('history')}
-            />
-          )}
+            {view === 'table' && selected && tableTab === 'data'      && (
+              <TableBrowser db={selected.db} table={selected.table} />
+            )}
+            {view === 'table' && selected && tableTab === 'structure' && (
+              <StructureView db={selected.db} table={selected.table} />
+            )}
+            {view === 'table' && selected && tableTab === 'ddl'       && (
+              <DDLEditor db={selected.db} table={selected.table} />
+            )}
+            {view === 'table' && selected && tableTab === 'sql'       && (
+              <SqlEditor db={selected.db} onNavigateHistory={() => setView('history')} />
+            )}
+            {view === 'sql' && (
+              <SqlEditor
+                key={replaySql ? `${replaySql.sql}-${connId}` : 'standalone'}
+                db={replaySql?.db ?? selected?.db}
+                initialSql={replaySql?.sql}
+                onNavigateHistory={() => setView('history')}
+              />
+            )}
+          </ErrorBoundary>
         </div>
       </div>
       {showSearch && (

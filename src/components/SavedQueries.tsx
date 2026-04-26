@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { Trash2, Play, Bookmark, RefreshCw } from 'lucide-react';
+import { useToast } from '@/context/ToastContext';
 
 interface SavedQuery {
   id: string;
@@ -23,6 +24,7 @@ function reltime(ts: number): string {
 }
 
 export default function SavedQueries({ onReplay }: Props) {
+  const { toast } = useToast();
   const [queries, setQueries] = useState<SavedQuery[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -44,6 +46,7 @@ export default function SavedQueries({ onReplay }: Props) {
       body: JSON.stringify({ id }),
     });
     setQueries(q => q.filter(x => x.id !== id));
+    toast('Query removed');
   }
 
   return (

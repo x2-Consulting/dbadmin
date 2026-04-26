@@ -11,12 +11,14 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
   const sp = req.nextUrl.searchParams;
   const page = Math.max(1, parseInt(sp.get('page') || '1'));
   const pageSize = Math.min(500, Math.max(1, parseInt(sp.get('pageSize') || '50')));
+  const orderBy = sp.get('sort') || undefined;
+  const orderDir = (sp.get('dir') === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc';
   // Collect per-column filters: filter[colName]=value
   const filters: Record<string, string> = {};
   sp.forEach((val, key) => { if (key.startsWith('filter[') && key.endsWith(']')) filters[key.slice(7, -1)] = val; });
   try {
     const pool = await getConnPool(conn(req));
-    const { rows, total } = await getTableData(pool, db, table, page, pageSize, filters);
+    const { rows, total } = await getTableData(pool, db, table, page, pageSize, filters, orderBy, orderDir);
     return NextResponse.json({ rows, total, page, pageSize });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

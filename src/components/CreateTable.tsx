@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Key } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
+import { useToast } from '@/context/ToastContext';
 
 const MYSQL_TYPES = [
   'INT', 'BIGINT', 'TINYINT', 'SMALLINT', 'FLOAT', 'DOUBLE', 'DECIMAL(10,2)',
@@ -57,6 +58,7 @@ function buildSQL(db: string, tableName: string, columns: ColumnDef[], pg: boole
 
 export default function CreateTable({ db, onClose, onCreated }: Props) {
   const { connId } = useConn();
+  const { toast } = useToast();
   const [dbType, setDbType] = useState<string>('mysql');
   const [tableName, setTableName] = useState('');
   const [columns, setColumns] = useState<ColumnDef[]>([
@@ -114,6 +116,7 @@ export default function CreateTable({ db, onClose, onCreated }: Props) {
       });
       const d = await r.json();
       if (d.error) { setError(d.error); return; }
+      toast('Table created');
       onCreated(db, tableName.trim());
     } finally { setRunning(false); }
   }

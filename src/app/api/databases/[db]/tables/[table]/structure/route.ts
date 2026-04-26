@@ -9,8 +9,8 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
   const connId = req.nextUrl.searchParams.get('conn') || 'default';
   try {
     const pool = await getConnPool(connId);
-    const { columns, indexes } = await getTableStructure(pool, db, table);
-    return NextResponse.json({ columns, indexes });
+    const { columns, indexes, foreignKeys } = await getTableStructure(pool, db, table);
+    return NextResponse.json({ columns, indexes, foreignKeys });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

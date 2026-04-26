@@ -29,16 +29,21 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
   try {
     const pool = await getConnPool(connId);
     const { rows } = await getTableData(pool, db, table, 1, limit);
-    if (format === 'csv') {
-      const csv = toCSV(rows);
-      return new NextResponse(csv, {
+    if (format === 'json') {
+      return new NextResponse(JSON.stringify(rows, null, 2), {
         headers: {
-          'Content-Type': 'text/csv',
-          'Content-Disposition': `attachment; filename="${table}.csv"`,
+          'Content-Type': 'application/json',
+          'Content-Disposition': `attachment; filename="${table}.json"`,
         },
       });
     }
-    return NextResponse.json({ rows });
+    const csv = toCSV(rows);
+    return new NextResponse(csv, {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${table}.csv"`,
+      },
+    });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
