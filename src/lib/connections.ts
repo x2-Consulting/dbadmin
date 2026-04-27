@@ -63,7 +63,12 @@ function atomicWrite(file: string, data: string): void {
 }
 
 function decryptConfig(conn: ConnectionConfig): ConnectionConfig {
-  return { ...conn, password: decryptPassword(conn.password) };
+  return {
+    ...conn,
+    password: decryptPassword(conn.password),
+    sshPassword: conn.sshPassword ? decryptPassword(conn.sshPassword) : conn.sshPassword,
+    sshKey:      conn.sshKey      ? decryptPassword(conn.sshKey)      : conn.sshKey,
+  };
 }
 
 export function listConnections(): ConnectionConfig[] {
@@ -79,8 +84,14 @@ export function listConnections(): ConnectionConfig[] {
 export function saveConnection(conn: ConnectionConfig): void {
   ensureDataFile();
   const existing = listConnections().filter(c => c.id !== 'default' && c.id !== conn.id);
-  const toStore = { ...conn, password: encryptPassword(conn.password) };
-  const existingStored = existing.map(c => ({ ...c, password: encryptPassword(c.password) }));
+  const encryptConn = (c: ConnectionConfig): ConnectionConfig => ({
+    ...c,
+    password:    encryptPassword(c.password),
+    sshPassword: c.sshPassword ? encryptPassword(c.sshPassword) : c.sshPassword,
+    sshKey:      c.sshKey      ? encryptPassword(c.sshKey)      : c.sshKey,
+  });
+  const toStore = encryptConn(conn);
+  const existingStored = existing.map(encryptConn);
   atomicWrite(DATA_FILE, JSON.stringify([...existingStored, toStore], null, 2));
   // Invalidate cached pool so the next request picks up the updated config
   const p = pools.get(conn.id);

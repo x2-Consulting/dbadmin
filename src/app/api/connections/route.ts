@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listConnections, saveConnection, getConnPool } from '@/lib/connections';
 import type { ConnectionConfig } from '@/lib/connections';
 import { randomUUID } from 'crypto';
+import { toApiError } from '@/lib/errors';
 
 export async function GET() {
   const conns = listConnections().map(({ password: _, sshPassword: _sp, sshKey: _sk, ...rest }) => rest);
@@ -27,6 +28,6 @@ export async function POST(req: NextRequest) {
     const { password: _, sshPassword: _sp, sshKey: _sk, ...safe } = conn;
     return NextResponse.json({ connection: safe });
   } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    return NextResponse.json({ error: toApiError(e) }, { status: 400 });
   }
 }

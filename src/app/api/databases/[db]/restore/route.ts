@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnPool } from '@/lib/connections';
+import { toApiError } from '@/lib/errors';
 
 const MAX_SIZE_MB = 100;
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ db:
   try {
     pool = await getConnPool(connId);
   } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return NextResponse.json({ error: toApiError(e) }, { status: 500 });
   }
 
   if (pool.config.readonly) {
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ db:
       executed = splitStatements(sql).length;
     }
   } catch (e: unknown) {
-    const msg = (e as Error).message;
+    const msg = toApiError(e);
     errors.push(msg);
     return NextResponse.json({ error: msg, executed }, { status: 400 });
   }

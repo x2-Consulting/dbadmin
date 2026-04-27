@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnPool } from '@/lib/connections';
 import { execQuery, importCSVRows } from '@/lib/adapter';
+import { toApiError } from '@/lib/errors';
 
 type Params = Promise<{ db: string }>;
 
@@ -27,6 +28,6 @@ export async function POST(req: NextRequest, { params }: { params: Params }) {
     }
     return NextResponse.json({ error: 'type must be sql or csv' }, { status: 400 });
   } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return NextResponse.json({ error: toApiError(e) }, { status: 500 });
   }
 }
