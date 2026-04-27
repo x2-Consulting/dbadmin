@@ -1,5 +1,5 @@
 'use client';
-import { Keyboard, Database, Code2, Shield, HardDrive, Users, BookOpen, Search, Table2 } from 'lucide-react';
+import { Keyboard, Database, Code2, Shield, HardDrive, Users, BookOpen, Search, Table2, Eye, Network, Gauge, GitCompare, SearchCode, Copy } from 'lucide-react';
 
 interface Section {
   icon: React.ReactNode;
@@ -13,21 +13,27 @@ const sections: Section[] = [
     title: 'Keyboard shortcuts',
     items: [
       { label: 'Ctrl+Enter / Cmd+Enter', desc: 'Run query in SQL editor' },
-      { label: 'Ctrl+K / Cmd+K',        desc: 'Open table search palette' },
-      { label: 'Esc',                    desc: 'Close search palette / cancel dialog' },
-      { label: '↑ / ↓',                 desc: 'Navigate search results' },
-      { label: 'Enter',                  desc: 'Open selected search result' },
+      { label: 'Ctrl+K / Cmd+K',         desc: 'Open table search palette' },
+      { label: 'Esc',                     desc: 'Close search palette / cancel dialog' },
+      { label: '↑ / ↓',                  desc: 'Navigate search results' },
+      { label: 'Enter',                   desc: 'Open selected search result' },
     ],
   },
   {
     icon: <Code2 className="w-4 h-4" />,
     title: 'SQL editor',
     items: [
+      { label: 'Multi-tab',           desc: 'Click + in the tab bar to open multiple independent SQL editor tabs; each retains its own query and result' },
       { label: 'Partial execution',   desc: 'Select text in the editor and press Run — only the selection is executed' },
       { label: 'Explain',             desc: 'Shows the query execution plan without running the query' },
       { label: 'Dry run',             desc: 'Wraps the query in a transaction and rolls it back — lets you preview effects safely' },
+      { label: 'Format',              desc: 'Auto-formats SQL: uppercases keywords and adds newlines before major clauses (FROM, WHERE, JOIN, etc.)' },
       { label: 'Destructive warning', desc: 'DROP, TRUNCATE, DELETE, ALTER, and UPDATE queries show a confirmation banner before running' },
-      { label: 'Export CSV',          desc: 'Downloads the current SELECT result as a CSV file' },
+      { label: 'Result sorting',      desc: 'Click any column header in the results table to sort ascending or descending' },
+      { label: 'Result pagination',   desc: 'Results over 200 rows are paginated — use the arrows at the top right of the results to navigate' },
+      { label: 'Cell expand',         desc: 'Click any cell with long text (>80 chars) to open a full-value modal; JSON is auto-formatted' },
+      { label: 'Export CSV / JSON',   desc: 'Downloads the current SELECT result in your chosen format' },
+      { label: 'Chart',               desc: 'Toggle a bar chart view of query results — pick X and Y axes from detected columns' },
       { label: 'Save query',          desc: 'Click the bookmark icon to name and save the current SQL for later use' },
       { label: 'History',             desc: 'Every executed query is logged — click History to browse, replay, or reuse past queries' },
     ],
@@ -37,16 +43,54 @@ const sections: Section[] = [
     title: 'Table browser',
     items: [
       { label: 'Filter',        desc: 'Click Filter in the toolbar to show per-column search inputs. Press Enter or Apply to filter rows.' },
+      { label: 'Sort',          desc: 'Click a column header to sort ascending; click again to sort descending' },
       { label: 'Edit row',      desc: 'Hover over a row and click the pencil icon to edit it in a modal form' },
       { label: 'Delete row',    desc: 'Hover over a row and click the trash icon — confirm in the browser dialog' },
       { label: 'Insert row',    desc: 'Click Insert Row in the toolbar to add a new row' },
+      { label: 'Bulk delete',   desc: 'Tick row checkboxes and use the Delete Selected button to remove multiple rows at once' },
       { label: 'Export CSV',    desc: 'Downloads all rows (not just the current page) matching any active filters' },
+      { label: 'Export JSON',   desc: 'Same as CSV export but in JSON array format' },
+      { label: 'Export SQL',    desc: 'Downloads rows as INSERT INTO statements — useful for moving data between databases' },
+      { label: 'Copy table',    desc: 'Table Actions → Copy table — duplicate the table structure and optionally its data into a new name' },
       { label: 'Pagination',    desc: 'Browse 50 rows per page using the arrows at the bottom' },
     ],
   },
   {
+    icon: <Eye className="w-4 h-4" />,
+    title: 'Views',
+    items: [
+      { label: 'Browse views',   desc: 'Views are listed below tables in the sidebar (italic, purple). Click to browse their data like a table.' },
+      { label: 'Manage views',   desc: 'Expand a database → Views to open the view manager — create, edit, and drop views' },
+      { label: 'Create view',    desc: 'Click New View, enter a name and SELECT query. Uses CREATE OR REPLACE VIEW internally.' },
+      { label: 'Edit view',      desc: 'Expand a view row to see its definition in a SQL editor. Save Changes rewrites it.' },
+      { label: 'Drop view',      desc: 'Hover a view in the list and click the trash icon' },
+    ],
+  },
+  {
+    icon: <SearchCode className="w-4 h-4" />,
+    title: 'Data search',
+    items: [
+      { label: 'Full-text search', desc: 'Expand a database → Search Data to search a term across all text columns in every table' },
+      { label: 'Results',          desc: 'Matches are grouped by table, showing the column, matched value, and primary key of the row' },
+      { label: 'Navigate',         desc: 'Click Open table on any result group to jump directly to that table in the browser' },
+      { label: 'Scope',            desc: 'Only searches columns of text types (VARCHAR, TEXT, CHAR, ENUM). Numeric and binary columns are skipped.' },
+    ],
+  },
+  {
+    icon: <Network className="w-4 h-4" />,
+    title: 'ER diagram',
+    items: [
+      { label: 'Open',             desc: 'Expand a database in the sidebar → ER Diagram' },
+      { label: 'Layout',           desc: 'Tables are positioned using a force-directed algorithm — related tables cluster together automatically' },
+      { label: 'Drag',             desc: 'Click and drag any table box to reposition it; drag the background to pan' },
+      { label: 'Zoom',             desc: 'Use the + / − buttons or the reset button in the toolbar' },
+      { label: 'Relationships',    desc: 'Arrows are drawn for every declared foreign key constraint. Hover a table to highlight its connected tables.' },
+      { label: 'Limitation',       desc: 'Only FK constraints defined in the database schema are drawn. Implicit relationships are not shown.' },
+    ],
+  },
+  {
     icon: <Search className="w-4 h-4" />,
-    title: 'Search',
+    title: 'Search palette',
     items: [
       { label: 'Table search',   desc: 'Press Ctrl+K or Cmd+K to search all table names and column names in the current connection' },
       { label: 'Column matches', desc: 'Results include tables that contain a matching column — navigate straight to the table' },
@@ -60,7 +104,27 @@ const sections: Section[] = [
       { label: 'Multiple connections',  desc: 'Click the connection selector at the top of the sidebar to switch between saved connections or add a new one' },
       { label: 'SSL modes',             desc: 'disable — no SSL; require — SSL without certificate verification; verify — full certificate chain check' },
       { label: 'Read-only connections', desc: 'Tick Read-only to prevent any INSERT, UPDATE, DELETE, DROP or DDL from running on that connection' },
+      { label: 'SSH tunnel',            desc: 'Fill in SSH Host, User, and Password or Private Key to connect through a bastion/jump host. The tunnel is opened automatically when the connection is first used.' },
       { label: 'Test connection',       desc: 'Use the Test button in the connection form before saving to verify credentials' },
+    ],
+  },
+  {
+    icon: <GitCompare className="w-4 h-4" />,
+    title: 'Schema diff',
+    items: [
+      { label: 'Compare databases', desc: 'Sidebar → Schema Diff — select two databases (can be on different connections) and click Compare' },
+      { label: 'Results',           desc: 'Shows tables only in A, only in B, and tables in both with column additions, removals, or type changes' },
+      { label: 'Use cases',         desc: 'Verify a migration, compare staging vs production, or audit schema drift between environments' },
+    ],
+  },
+  {
+    icon: <Gauge className="w-4 h-4" />,
+    title: 'Top queries',
+    items: [
+      { label: 'MySQL / MariaDB',   desc: 'Reads from performance_schema.events_statements_summary_by_digest — shows the 50 slowest queries by average execution time' },
+      { label: 'PostgreSQL',        desc: 'Reads from pg_stat_statements (requires the extension to be installed and enabled)' },
+      { label: 'Sorting',           desc: 'Click Avg (ms), Max (ms), Calls, or Total (ms) to re-sort the list' },
+      { label: 'Expand',            desc: 'Click any row to see the full query text and all timing stats' },
     ],
   },
   {

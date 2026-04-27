@@ -6,19 +6,58 @@ A self-hosted web-based database administration tool for **MySQL**, **MariaDB**,
 
 ## Features
 
-- **Multi-connection** — manage multiple MySQL/MariaDB and PostgreSQL servers from one interface, with per-connection SSL and read-only modes
-- **Table browser** — paginated data view with per-column filters, inline row insert/edit/delete, and CSV export
-- **SQL editor** — Monaco-based editor with syntax highlighting, Explain, Dry run (auto-rollback), destructive query guard, Export CSV, and bookmarkable saved queries
-- **Query history** — every executed query is logged with timing and row counts; replay any past query with one click
-- **Saved queries** — bookmark frequently used SQL with a name; persisted across sessions
-- **Global search** — `Cmd+K` / `Ctrl+K` palette searches all table and column names across the active connection
-- **Structure view** — column types, nullability, keys, and indexes for any table
-- **DDL editor** — view and alter `CREATE TABLE` statements directly
+### Connections
+- **Multi-connection** — manage multiple MySQL/MariaDB and PostgreSQL servers from one interface
+- **SSH tunnels** — connect to databases behind a bastion host by configuring SSH Host/User/Key in the connection form; the tunnel is opened automatically
+- **SSL modes** — disable, require (skip verify), or verify (full cert chain) per connection
+- **Read-only mode** — blocks all INSERT, UPDATE, DELETE, DROP, and DDL at the application layer
+
+### SQL editor
+- **Multi-tab** — open multiple independent SQL editor tabs; each retains its own query and result set
+- **Monaco editor** — full syntax highlighting and SQL autocomplete (tables + columns in scope)
+- **Explain / Dry run** — preview the execution plan or wrap a query in a transaction that auto-rolls back
+- **Format** — auto-formats SQL by uppercasing keywords and adding clause line breaks
+- **Destructive guard** — DROP, TRUNCATE, DELETE, ALTER, and UPDATE require explicit confirmation
+- **Result sorting** — click any column header to sort results ascending/descending
+- **Result pagination** — results over 200 rows are paginated
+- **Cell expand** — click any long cell to view the full value; JSON is auto-pretty-printed
+- **Export CSV / JSON** — download the current result set in your chosen format
+- **Bar chart** — toggle a chart view of query results with configurable X and Y axes
+- **Save / History** — bookmark named queries and browse the full execution history
+
+### Table browser
+- **Paginated data view** — 50 rows per page with per-column text filters and column-header sorting
+- **Inline editing** — insert, edit, and delete rows without leaving the browser
+- **Bulk delete** — select multiple rows and delete them in one action
+- **Export CSV / JSON / SQL** — export all table rows; SQL format produces INSERT INTO statements
+- **Copy table** — duplicate a table's structure (and optionally its data) to a new name
+- **Import CSV** — upload a CSV file to insert rows into any table
+
+### Schema tools
+- **Structure view** — column types, nullability, keys, indexes, and foreign key references
+- **DDL editor** — view and modify CREATE TABLE statements directly
+- **Alter column** — rename, retype, or change nullability/default of any column via a form
+- **Index management** — add and drop indexes from the Structure view
 - **Table creation wizard** — visual column builder with type dropdown and live SQL preview
-- **Backup & restore** — download a full SQL dump per database, or upload and execute a `.sql` file
-- **Live stats** — real-time server metrics (connections, queries, throughput)
+- **Table maintenance** — OPTIMIZE, ANALYZE, REPAIR, and CHECK via the table actions menu
+- **Views** — browse view data like a table; manage views (create, edit body, drop) from the db sidebar
+- **Routines** — list, view body, create, and drop stored procedures and functions
+- **Triggers** — list, view body, create, and drop triggers
+- **Events** — list, view body, create, and drop scheduled events (MySQL/MariaDB)
+
+### Analysis & diagnostics
+- **ER diagram** — interactive force-directed relationship diagram; tables are nodes, FK constraints are edges; drag to reposition, zoom, pan, hover to highlight connections
+- **Data search** — search a term across all text columns in every table in a database; results show matched column and value with a link to the table
+- **Schema diff** — compare two databases (on any connection) and see tables/columns added, removed, or changed
+- **Top queries** — slowest queries by average execution time from `performance_schema` (MySQL) or `pg_stat_statements` (PostgreSQL)
+- **Process list** — active connections with kill button
+- **Server variables** — full list of server configuration variables with search
+
+### Operations
+- **Backup & restore** — SQL dump download per database; upload and execute `.sql` restore files
+- **Live stats** — real-time server metrics (connections, queries/sec, throughput)
 - **User management** — list, create, and drop database users with privilege assignment
-- **Help docs** — built-in reference covering all features and keyboard shortcuts
+- **Create / drop databases** — with two-step confirmation and backup prompt on drop
 
 ---
 
@@ -32,6 +71,7 @@ A self-hosted web-based database administration tool for **MySQL**, **MariaDB**,
 | SQL editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) (`@monaco-editor/react`) |
 | MySQL/MariaDB driver | [mysql2](https://github.com/sidorares/node-mysql2) |
 | PostgreSQL driver | [pg](https://node-postgres.com) |
+| SSH tunnels | [ssh2](https://github.com/mscdex/ssh2) |
 | Icons | [Lucide React](https://lucide.dev) |
 | Auth | HMAC-SHA256 session tokens (Web Crypto API), `HttpOnly` + `SameSite=Strict` cookies |
 | Crypto | AES-256-GCM for credential encryption at rest (Node.js `crypto`) |
