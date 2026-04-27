@@ -10,6 +10,9 @@ export async function POST(req: NextRequest, { params }: { params: Params }) {
   const { type, sql, table, headers, rows } = await req.json();
   try {
     const pool = await getConnPool(connId);
+    if (pool.config.readonly) {
+      return NextResponse.json({ error: 'Connection is read-only' }, { status: 403 });
+    }
     if (type === 'sql') {
       if (!sql) return NextResponse.json({ error: 'sql required' }, { status: 400 });
       const result = await execQuery(pool, sql, db);

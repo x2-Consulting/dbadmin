@@ -18,6 +18,12 @@ function ensureFile() {
   if (!fs.existsSync(SAVED_FILE)) fs.writeFileSync(SAVED_FILE, '[]');
 }
 
+function atomicWrite(file: string, data: string): void {
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, data, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 export function readSaved(): SavedQuery[] {
   try {
     ensureFile();
@@ -30,13 +36,13 @@ export function addSaved(entry: Omit<SavedQuery, 'id' | 'ts'>): SavedQuery {
   const existing = readSaved();
   const item: SavedQuery = { ...entry, id: randomUUID(), ts: Date.now() };
   existing.unshift(item);
-  fs.writeFileSync(SAVED_FILE, JSON.stringify(existing));
+  atomicWrite(SAVED_FILE, JSON.stringify(existing));
   return item;
 }
 
 export function deleteSaved(id: string): void {
   try {
     const existing = readSaved();
-    fs.writeFileSync(SAVED_FILE, JSON.stringify(existing.filter(e => e.id !== id)));
+    atomicWrite(SAVED_FILE, JSON.stringify(existing.filter(e => e.id !== id)));
   } catch { /* non-fatal */ }
 }

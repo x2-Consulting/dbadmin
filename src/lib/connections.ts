@@ -56,6 +56,12 @@ function ensureDataFile() {
   if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, '[]');
 }
 
+function atomicWrite(file: string, data: string): void {
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, data, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 function decryptConfig(conn: ConnectionConfig): ConnectionConfig {
   return { ...conn, password: decryptPassword(conn.password) };
 }
@@ -75,13 +81,20 @@ export function saveConnection(conn: ConnectionConfig): void {
   const existing = listConnections().filter(c => c.id !== 'default' && c.id !== conn.id);
   const toStore = { ...conn, password: encryptPassword(conn.password) };
   const existingStored = existing.map(c => ({ ...c, password: encryptPassword(c.password) }));
-  fs.writeFileSync(DATA_FILE, JSON.stringify([...existingStored, toStore], null, 2));
+  atomicWrite(DATA_FILE, JSON.stringify([...existingStored, toStore], null, 2));
+  // Invalidate cached pool so the next request picks up the updated config
+  const p = pools.get(conn.id);
+  if (p?.mysql) p.mysql.end().catch(() => {});
+  if (p?.pg) p.pg.end().catch(() => {});
+  pools.delete(conn.id);
+  const t = tunnels.get(conn.id);
+  if (t) { t.server.close(); (t.ssh as { end?: () => void })?.end?.(); tunnels.delete(conn.id); }
 }
 
 export function removeConnection(id: string): void {
   ensureDataFile();
   const raw: ConnectionConfig[] = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  fs.writeFileSync(DATA_FILE, JSON.stringify(raw.filter(c => c.id !== id), null, 2));
+  atomicWrite(DATA_FILE, JSON.stringify(raw.filter(c => c.id !== id), null, 2));
   const p = pools.get(id);
   if (p?.mysql) p.mysql.end().catch(() => {});
   if (p?.pg) p.pg.end().catch(() => {});

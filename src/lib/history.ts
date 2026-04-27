@@ -23,12 +23,18 @@ function ensureFile() {
   if (!fs.existsSync(HISTORY_FILE)) fs.writeFileSync(HISTORY_FILE, '[]');
 }
 
+function atomicWrite(file: string, data: string): void {
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, data, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 export function appendHistory(entry: Omit<HistoryEntry, 'id' | 'ts'>): void {
   try {
     ensureFile();
     const existing: HistoryEntry[] = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
     existing.unshift({ ...entry, id: randomUUID(), ts: Date.now() });
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(existing.slice(0, MAX_ENTRIES)));
+    atomicWrite(HISTORY_FILE, JSON.stringify(existing.slice(0, MAX_ENTRIES)));
   } catch { /* non-fatal */ }
 }
 
@@ -40,5 +46,5 @@ export function readHistory(): HistoryEntry[] {
 }
 
 export function clearHistory(): void {
-  try { fs.writeFileSync(HISTORY_FILE, '[]'); } catch { /* non-fatal */ }
+  try { atomicWrite(HISTORY_FILE, '[]'); } catch { /* non-fatal */ }
 }
