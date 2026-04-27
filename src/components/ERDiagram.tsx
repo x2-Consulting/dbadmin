@@ -25,18 +25,59 @@ function tableHeight(t: ERTable) {
   return HEADER_H + t.columns.length * COL_H + 8;
 }
 
-function initialLayout(tables: ERTable[]): Record<string, TablePos> {
-  const cols = Math.max(1, Math.ceil(Math.sqrt(tables.length)));
-  const positions: Record<string, TablePos> = {};
+function forceLayout(tables: ERTable[], relations: ERRelation[]): Record<string, { x: number; y: number }> {
+  const n = tables.length;
+  if (n === 0) return {};
+
+  const cx = 500, cy = 400;
+  const r = Math.min(500, 120 * Math.sqrt(n));
+  const pos: Record<string, { x: number; y: number }> = {};
+  const vel: Record<string, { vx: number; vy: number }> = {};
+
   tables.forEach((t, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    positions[t.name] = {
-      x: 40 + col * 230,
-      y: 40 + row * 280,
-      w: TABLE_W,
-      h: tableHeight(t),
-    };
+    const angle = (2 * Math.PI * i) / n;
+    pos[t.name] = { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+    vel[t.name] = { vx: 0, vy: 0 };
+  });
+
+  const REPULSION = 18000, SPRING_LEN = 220, SPRING_K = 0.04, DAMPING = 0.82, GRAVITY = 0.0008;
+
+  for (let iter = 0; iter < 400; iter++) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = tables[i].name, b = tables[j].name;
+        const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
+        const dist = Math.max(40, Math.sqrt(dx * dx + dy * dy));
+        const f = REPULSION / (dist * dist);
+        vel[a].vx -= f * dx / dist; vel[a].vy -= f * dy / dist;
+        vel[b].vx += f * dx / dist; vel[b].vy += f * dy / dist;
+      }
+    }
+    for (const rel of relations) {
+      const a = rel.fromTable, b = rel.toTable;
+      if (!pos[a] || !pos[b] || a === b) continue;
+      const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
+      const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const f = SPRING_K * (dist - SPRING_LEN);
+      vel[a].vx += f * dx / dist; vel[a].vy += f * dy / dist;
+      vel[b].vx -= f * dx / dist; vel[b].vy -= f * dy / dist;
+    }
+    for (const t of tables) {
+      vel[t.name].vx += (cx - pos[t.name].x) * GRAVITY;
+      vel[t.name].vy += (cy - pos[t.name].y) * GRAVITY;
+      vel[t.name].vx *= DAMPING; vel[t.name].vy *= DAMPING;
+      pos[t.name].x += vel[t.name].vx; pos[t.name].y += vel[t.name].vy;
+    }
+  }
+  return pos;
+}
+
+function initialLayout(tables: ERTable[], relations: ERRelation[]): Record<string, TablePos> {
+  const fPos = forceLayout(tables, relations);
+  const positions: Record<string, TablePos> = {};
+  tables.forEach(t => {
+    const p = fPos[t.name] ?? { x: 40, y: 40 };
+    positions[t.name] = { x: p.x - TABLE_W / 2, y: p.y - tableHeight(t) / 2, w: TABLE_W, h: tableHeight(t) };
   });
   return positions;
 }
@@ -66,7 +107,7 @@ export default function ERDiagram({ db }: Props) {
         if (d.error) { setError(d.error); return; }
         setTables(d.tables || []);
         setRelations(d.relations || []);
-        setPositions(initialLayout(d.tables || []));
+        setPositions(initialLayout(d.tables || [], d.relations || []));
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

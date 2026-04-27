@@ -32,6 +32,7 @@ export default function Sidebar({ selected, onSelect, activeView, onView, onSear
   const [tables, setTables] = useState<Record<string, string[]>>({});
   const [views, setViews] = useState<Record<string, string[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [tableFilter, setTableFilter] = useState<Record<string, string>>({});
   const [loadingDbs, setLoadingDbs] = useState(true);
   const [loadingTables, setLoadingTables] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
@@ -220,7 +221,17 @@ export default function Sidebar({ selected, onSelect, activeView, onView, onSear
                       <Icon className="w-3 h-3 shrink-0" />{label}
                     </button>
                   ))}
-                  {(tables[db] || []).map(t => (
+                  {(tables[db]?.length ?? 0) > 8 && (
+                    <div className="mx-2 mb-1">
+                      <input
+                        value={tableFilter[db] || ''}
+                        onChange={e => setTableFilter(f => ({ ...f, [db]: e.target.value }))}
+                        placeholder="Filter tables…"
+                        className="w-full bg-zinc-800/80 border border-zinc-700/60 rounded-lg px-2.5 py-1 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
+                      />
+                    </div>
+                  )}
+                  {(tables[db] || []).filter(t => !tableFilter[db] || t.toLowerCase().includes(tableFilter[db].toLowerCase())).map(t => (
                     <button key={`t:${t}`}
                       onClick={() => { onSelect(db, t); onView('table'); }}
                       className={`w-full flex items-center gap-1.5 pl-8 pr-3 py-1 rounded-lg text-left transition-colors ${
@@ -232,7 +243,7 @@ export default function Sidebar({ selected, onSelect, activeView, onView, onSear
                       <span className="truncate text-xs">{t}</span>
                     </button>
                   ))}
-                  {(views[db] || []).map(v => (
+                  {(views[db] || []).filter(v => !tableFilter[db] || v.toLowerCase().includes(tableFilter[db].toLowerCase())).map(v => (
                     <button key={`v:${v}`}
                       onClick={() => { onSelect(db, v); onView('table'); }}
                       className={`w-full flex items-center gap-1.5 pl-8 pr-3 py-1 rounded-lg text-left transition-colors ${

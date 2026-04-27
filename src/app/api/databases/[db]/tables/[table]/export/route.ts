@@ -4,6 +4,23 @@ import { getTableData } from '@/lib/adapter';
 
 type Params = Promise<{ db: string; table: string }>;
 
+function toSQLInserts(table: string, rows: unknown[]): string {
+  if (!rows.length) return `-- No rows in ${table}\n`;
+  const cols = Object.keys(rows[0] as Record<string, unknown>);
+  const esc = (v: unknown): string => {
+    if (v === null || v === undefined) return 'NULL';
+    if (typeof v === 'number' || typeof v === 'bigint') return String(v);
+    if (typeof v === 'boolean') return v ? '1' : '0';
+    return `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  };
+  const header = `-- ${table}: ${rows.length} rows\n`;
+  const colList = cols.map(c => `\`${c}\``).join(', ');
+  const values = (rows as Record<string, unknown>[])
+    .map(r => `(${cols.map(c => esc(r[c])).join(', ')})`)
+    .join(',\n  ');
+  return `${header}INSERT INTO \`${table}\` (${colList})\nVALUES\n  ${values};\n`;
+}
+
 function toCSV(rows: unknown[]): string {
   if (!rows.length) return '';
   const cols = Object.keys(rows[0] as Record<string, unknown>);
@@ -34,6 +51,14 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
         headers: {
           'Content-Type': 'application/json',
           'Content-Disposition': `attachment; filename="${table}.json"`,
+        },
+      });
+    }
+    if (format === 'sql') {
+      return new NextResponse(toSQLInserts(table, rows), {
+        headers: {
+          'Content-Type': 'text/plain',
+          'Content-Disposition': `attachment; filename="${table}.sql"`,
         },
       });
     }

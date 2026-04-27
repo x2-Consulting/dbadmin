@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { Play, Clock, AlertCircle, CheckCircle2, Search, Download, FlaskConical, RotateCcw, ShieldAlert, Bookmark, Check, BarChart2 } from 'lucide-react';
+import { Play, Clock, AlertCircle, CheckCircle2, Search, Download, FlaskConical, RotateCcw, ShieldAlert, Bookmark, Check, BarChart2, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Wand2, X } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
@@ -23,6 +23,18 @@ interface QueryResult {
 }
 
 const DESTRUCTIVE_RE = /^\s*(drop\s|truncate\s|delete\s+from\s|alter\s+table\s)/i;
+
+const PAGE_SIZE = 200;
+
+function formatSQL(sql: string): string {
+  const BREAK_BEFORE = /\b(SELECT|FROM|WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|UNION\s+ALL|UNION|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|FULL\s+OUTER\s+JOIN|CROSS\s+JOIN|JOIN|INSERT\s+INTO|VALUES|UPDATE|SET|DELETE\s+FROM|ON\b(?!\s+\())\b/gi;
+  let s = sql.replace(/\s+/g, ' ').trim();
+  s = s.replace(BREAK_BEFORE, '\n$&');
+  s = s.replace(/\b(AND|OR)\b/gi, '\n  $&');
+  const KWS = ['SELECT','FROM','WHERE','AND','OR','JOIN','LEFT','RIGHT','INNER','OUTER','CROSS','FULL','ON','AS','IN','NOT','NULL','IS','LIKE','DISTINCT','COUNT','SUM','AVG','MAX','MIN','CASE','WHEN','THEN','ELSE','END','BETWEEN','EXISTS','GROUP','ORDER','BY','HAVING','LIMIT','OFFSET','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','TABLE','ALTER','DROP','UNION','ALL','ASC','DESC','TRUE','FALSE','WITH'];
+  KWS.forEach(k => { s = s.replace(new RegExp(`\\b${k}\\b`, 'g'), k); });
+  return s.trim();
+}
 
 function rowsToCSV(rows: Record<string, unknown>[]): string {
   if (!rows.length) return '';
@@ -122,6 +134,10 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
   const [confirmPending, setConfirmPending] = useState<string | null>(null);
   const [showChart, setShowChart] = useState(false);
   const [showSavePanel, setShowSavePanel] = useState(false);
+  const [resultPage, setResultPage] = useState(0);
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [expandCell, setExpandCell] = useState<{ col: string; value: unknown } | null>(null);
   const [saveName, setSaveName] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const editorRef = useRef<unknown>(null);
@@ -158,6 +174,8 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
         body: JSON.stringify({ sql: toRun, db, conn: connId, ...opts }),
       });
       setResult(await r.json());
+      setResultPage(0);
+      setSortCol(null);
     } finally { setRunning(false); }
   }
 
@@ -212,6 +230,14 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
           className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-100 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
         >
           <Search className="w-3.5 h-3.5" /> Explain
+        </button>
+
+        <button
+          onClick={() => setSql(s => formatSQL(s))}
+          title="Auto-format SQL"
+          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-100 bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          <Wand2 className="w-3.5 h-3.5" /> Format
         </button>
 
         <button
@@ -404,37 +430,87 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
           </div>
         )}
 
-        {result?.rows && columns.length > 0 && (
-          <div>
-            <div className="flex items-center gap-3 px-4 py-2 text-xs text-zinc-500 border-b border-zinc-800">
-              <span className="text-zinc-300 font-medium">{result.rows.length.toLocaleString()} rows</span>
-              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{result.elapsed}ms</span>
-              {result.dryRun && <span className="text-amber-400 font-medium">[Dry run — rolled back]</span>}
-            </div>
-            <table className="min-w-full text-xs border-collapse">
-              <thead className="sticky top-0 bg-zinc-900 z-10">
-                <tr className="border-b border-zinc-800">
-                  {columns.map(c => (
-                    <th key={c} className="px-3 py-2.5 text-left font-medium text-zinc-400 whitespace-nowrap">{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.rows.map((row, i) => (
-                  <tr key={i} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
+        {result?.rows && columns.length > 0 && (() => {
+          const allRows = result.rows as Record<string, unknown>[];
+          const sorted = sortCol
+            ? [...allRows].sort((a, b) => {
+                const av = a[sortCol], bv = b[sortCol];
+                if (av === null && bv === null) return 0;
+                if (av === null) return 1;
+                if (bv === null) return -1;
+                const n = Number(av), m = Number(bv);
+                const cmp = !isNaN(n) && !isNaN(m) ? n - m : String(av).localeCompare(String(bv));
+                return sortDir === 'asc' ? cmp : -cmp;
+              })
+            : allRows;
+          const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+          const page = Math.min(resultPage, totalPages - 1);
+          const pageRows = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+          return (
+            <div>
+              <div className="flex items-center gap-3 px-4 py-2 text-xs text-zinc-500 border-b border-zinc-800 flex-wrap">
+                <span className="text-zinc-300 font-medium">{sorted.length.toLocaleString()} rows</span>
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{result.elapsed}ms</span>
+                {result.dryRun && <span className="text-amber-400 font-medium">[Dry run — rolled back]</span>}
+                {totalPages > 1 && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span>{page + 1} / {totalPages}</span>
+                    <button onClick={() => setResultPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                      className="p-0.5 rounded text-zinc-500 hover:text-zinc-200 disabled:opacity-30 transition-colors">
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => setResultPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                      className="p-0.5 rounded text-zinc-500 hover:text-zinc-200 disabled:opacity-30 transition-colors">
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+              <table className="min-w-full text-xs border-collapse">
+                <thead className="sticky top-0 bg-zinc-900 z-10">
+                  <tr className="border-b border-zinc-800">
                     {columns.map(c => (
-                      <td key={c} className="px-3 py-2 max-w-xs">
-                        {row[c] === null
-                          ? <span className="text-zinc-600 italic">NULL</span>
-                          : <span className="text-zinc-200 truncate block font-mono">{String(row[c])}</span>}
-                      </td>
+                      <th key={c}
+                        onClick={() => { setSortCol(c); setSortDir(d => sortCol === c ? (d === 'asc' ? 'desc' : 'asc') : 'asc'); setResultPage(0); }}
+                        className="px-3 py-2.5 text-left font-medium text-zinc-400 whitespace-nowrap cursor-pointer hover:text-zinc-200 select-none group transition-colors">
+                        <span className="flex items-center gap-1">
+                          {c}
+                          {sortCol === c
+                            ? sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-400" /> : <ChevronDown className="w-3 h-3 text-blue-400" />
+                            : <ChevronUp className="w-3 h-3 opacity-0 group-hover:opacity-30 transition-opacity" />}
+                        </span>
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {pageRows.map((row, i) => (
+                    <tr key={i} className="border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors">
+                      {columns.map(c => {
+                        const val = row[c];
+                        const str = val === null ? null : String(val);
+                        const isLong = str !== null && str.length > 80;
+                        return (
+                          <td key={c} className="px-3 py-2 max-w-xs">
+                            {val === null
+                              ? <span className="text-zinc-600 italic">NULL</span>
+                              : <span
+                                  onClick={() => isLong && setExpandCell({ col: c, value: val })}
+                                  className={`text-zinc-200 truncate block font-mono ${isLong ? 'cursor-pointer hover:text-blue-300' : ''}`}
+                                  title={isLong ? 'Click to expand' : undefined}
+                                >
+                                  {str}
+                                </span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
 
         {showChart && result?.rows && columns.length > 1 && (
           <ResultChart rows={result.rows as Record<string, unknown>[]} columns={columns} />
@@ -444,6 +520,39 @@ export default function SqlEditor({ db, initialSql, onNavigateHistory }: Props) 
           <div className="m-4 p-3 text-zinc-500 text-sm">Query returned no columns.</div>
         )}
       </div>
+
+      {/* Cell expand modal */}
+      {expandCell && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setExpandCell(null)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <span className="text-xs font-mono text-zinc-400">{expandCell.col}</span>
+              <button onClick={() => setExpandCell(null)} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {(() => {
+                const str = String(expandCell.value);
+                try {
+                  const parsed = JSON.parse(str);
+                  return <pre className="text-xs text-zinc-200 font-mono whitespace-pre-wrap">{JSON.stringify(parsed, null, 2)}</pre>;
+                } catch {
+                  return <pre className="text-xs text-zinc-200 font-mono whitespace-pre-wrap break-all">{str}</pre>;
+                }
+              })()}
+            </div>
+            <div className="px-4 py-3 border-t border-zinc-800 flex justify-end">
+              <button
+                onClick={() => { navigator.clipboard.writeText(String(expandCell.value)); }}
+                className="text-xs text-zinc-500 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

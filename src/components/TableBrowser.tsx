@@ -80,6 +80,10 @@ export default function TableBrowser({ db, table, readonly }: Props) {
     window.location.href = `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/export?conn=${connId}&format=json`;
   }
 
+  function exportSQL() {
+    window.location.href = `/api/databases/${encodeURIComponent(db)}/tables/${encodeURIComponent(table)}/export?conn=${connId}&format=sql`;
+  }
+
   function toggleSort(col: string) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
@@ -164,6 +168,10 @@ export default function TableBrowser({ db, table, readonly }: Props) {
           <button onClick={exportJSON}
             className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors">
             <Download className="w-3.5 h-3.5" /> JSON
+          </button>
+          <button onClick={exportSQL}
+            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors">
+            <Download className="w-3.5 h-3.5" /> SQL
           </button>
           <button onClick={() => load()} disabled={loading}
             className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors disabled:opacity-40">
