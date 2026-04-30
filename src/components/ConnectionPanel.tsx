@@ -1,11 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock } from 'lucide-react';
 import type { DbType, SslMode } from '@/lib/connections';
 import { useConn } from '@/context/ConnectionContext';
 import { useToast } from '@/context/ToastContext';
 
-interface ConnInfo { id: string; name: string; type: DbType; host: string; port: number; user: string; database?: string; readonly?: boolean; }
+interface ConnInfo { id: string; name: string; type: DbType; host: string; port: number; user: string; database?: string; readonly?: boolean; sslMode?: SslMode; sshHost?: string; sshPort?: number; sshUser?: string; }
 
 const TYPE_DEFAULTS: Record<DbType, { port: number; label: string; color: string }> = {
   mariadb:  { port: 3306,  label: 'MariaDB',    color: 'text-amber-400' },
@@ -29,6 +29,7 @@ export default function ConnectionPanel({ onClose }: Props) {
   const { toast } = useToast();
   const [connections, setConnections] = useState<ConnInfo[]>([]);
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -70,18 +71,37 @@ export default function ConnectionPanel({ onClose }: Props) {
     setSaving(true);
     setSaveError('');
     setTestResult(null);
+    const body = editingId ? { ...form, id: editingId } : form;
     const r = await fetch('/api/connections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
     if (d.error) { setSaveError(d.error); setSaving(false); return; }
     await loadConnections();
     setAdding(false);
+    setEditingId(null);
     setForm(EMPTY_FORM);
     setSaving(false);
     toast('Connection saved');
+  }
+
+  function editConn(c: ConnInfo) {
+    setEditingId(c.id);
+    setForm({
+      name: c.name, type: c.type,
+      host: c.host, port: c.port,
+      user: c.user, password: '',
+      database: c.database ?? '',
+      sslMode: c.sslMode ?? 'disable',
+      readonly: c.readonly ?? false,
+      sshHost: c.sshHost ?? '', sshPort: c.sshPort ?? 22,
+      sshUser: c.sshUser ?? '', sshPassword: '', sshKey: '',
+    });
+    setAdding(true);
+    setTestResult(null);
+    setSaveError('');
   }
 
   async function deleteConn(id: string) {
@@ -131,21 +151,29 @@ export default function ConnectionPanel({ onClose }: Props) {
                     <span className="text-xs text-zinc-500 truncate font-mono">{c.user}@{c.host}{c.database ? `/${c.database}` : ''}</span>
                   </div>
                 </div>
-                {c.id !== 'default' && (
+                <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={e => { e.stopPropagation(); deleteConn(c.id); }}
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                    onClick={e => { e.stopPropagation(); editConn(c); }}
+                    className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Pencil className="w-3.5 h-3.5" />
                   </button>
-                )}
+                  {c.id !== 'default' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteConn(c.id); }}
+                      className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
 
           {adding ? (
             <div className="border border-zinc-700 rounded-xl p-4 space-y-3 bg-zinc-800/30">
-              <h3 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">New Connection</h3>
+              <h3 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{editingId ? 'Edit Connection' : 'New Connection'}</h3>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
@@ -191,7 +219,8 @@ export default function ConnectionPanel({ onClose }: Props) {
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">Password</label>
                   <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-colors" />
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-colors"
+                    placeholder={editingId ? 'Leave blank to keep current' : ''} />
                 </div>
                 {form.type === 'postgres' && (
                   <div className="col-span-2">
@@ -289,7 +318,7 @@ export default function ConnectionPanel({ onClose }: Props) {
                   Test connection
                 </button>
                 <div className="flex gap-2">
-                  <button onClick={() => { setAdding(false); setTestResult(null); setSaveError(''); }}
+                  <button onClick={() => { setAdding(false); setEditingId(null); setForm(EMPTY_FORM); setTestResult(null); setSaveError(''); }}
                     className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-100 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">
                     Cancel
                   </button>

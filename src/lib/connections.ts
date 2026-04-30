@@ -75,7 +75,10 @@ export function listConnections(): ConnectionConfig[] {
   try {
     ensureDataFile();
     const saved: ConnectionConfig[] = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    return [defaultConn(), ...saved.map(decryptConfig)];
+    const decrypted = saved.map(decryptConfig);
+    const savedDefault = decrypted.find(c => c.id === 'default');
+    const others = decrypted.filter(c => c.id !== 'default');
+    return [savedDefault ?? defaultConn(), ...others];
   } catch {
     return [defaultConn()];
   }
@@ -83,16 +86,31 @@ export function listConnections(): ConnectionConfig[] {
 
 export function saveConnection(conn: ConnectionConfig): void {
   ensureDataFile();
-  const existing = listConnections().filter(c => c.id !== 'default' && c.id !== conn.id);
+  const storedRaw: ConnectionConfig[] = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  const existing = storedRaw.filter(c => c.id !== conn.id);
+
   const encryptConn = (c: ConnectionConfig): ConnectionConfig => ({
     ...c,
     password:    encryptPassword(c.password),
     sshPassword: c.sshPassword ? encryptPassword(c.sshPassword) : c.sshPassword,
     sshKey:      c.sshKey      ? encryptPassword(c.sshKey)      : c.sshKey,
   });
-  const toStore = encryptConn(conn);
-  const existingStored = existing.map(encryptConn);
-  atomicWrite(DATA_FILE, JSON.stringify([...existingStored, toStore], null, 2));
+
+  // Preserve existing credentials when not re-entered
+  let connToSave = conn;
+  if (conn.password === '') {
+    const prev = storedRaw.find(c => c.id === conn.id);
+    if (prev) {
+      connToSave = {
+        ...conn,
+        password:    decryptPassword(prev.password),
+        sshPassword: conn.sshPassword === '' && prev.sshPassword ? decryptPassword(prev.sshPassword) : conn.sshPassword,
+        sshKey:      conn.sshKey === '' && prev.sshKey ? decryptPassword(prev.sshKey) : conn.sshKey,
+      };
+    }
+  }
+
+  atomicWrite(DATA_FILE, JSON.stringify([...existing, encryptConn(connToSave)], null, 2));
   // Invalidate cached pool so the next request picks up the updated config
   const p = pools.get(conn.id);
   if (p?.mysql) p.mysql.end().catch(() => {});

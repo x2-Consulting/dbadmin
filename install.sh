@@ -65,6 +65,29 @@ EOF
   ok ".env.local created"
 fi
 
+# ─── Default DB connection ──────────────────────────────────────────────────
+echo ""
+echo -e "${B}Default database connection…${N}"
+info "Press Enter on DB host to skip and configure connections later in the UI."
+read -rp "  DB host []: " DB_HOST
+if [ -n "$DB_HOST" ]; then
+  read -rp "  DB port [3306]: " DB_PORT
+  read -rp "  DB user [root]: " DB_USER
+  read -rsp "  DB password: " DB_PASS; echo
+  read -rp "  Display name [Local MySQL]: " DB_NAME
+  {
+    echo ""
+    echo "DB_HOST=${DB_HOST}"
+    echo "DB_PORT=${DB_PORT:-3306}"
+    echo "DB_USER=${DB_USER:-root}"
+    echo "DB_PASS=${DB_PASS}"
+    echo "DB_NAME=${DB_NAME:-Local MySQL}"
+  } >> .env.local
+  ok "Default DB connection configured"
+else
+  warn "Skipping default DB — add connections in the UI after first login"
+fi
+
 # ─── Port ───────────────────────────────────────────────────────────────────
 echo ""
 read -rp "  Port to listen on [3333]: " PORT
