@@ -1,9 +1,88 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Pencil, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
 import type { DbType, SslMode } from '@/lib/connections';
 import { useConn } from '@/context/ConnectionContext';
 import { useToast } from '@/context/ToastContext';
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+  return (
+    <button onClick={copy}
+      className="p-1 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-700 transition-colors shrink-0"
+      title="Copy">
+      {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+    </button>
+  );
+}
+
+const PG_STEPS: Array<{ label: string; note: string; sql: string }> = [
+  {
+    label: 'Create the monitoring user',
+    note: 'Run this as a superuser (e.g. postgres). Pick a strong password.',
+    sql: `CREATE USER monitor WITH PASSWORD 'change_me';`,
+  },
+  {
+    label: 'Grant the built-in monitoring role',
+    note: 'pg_monitor (PostgreSQL 10+) gives read access to all pg_stat_* views — no superuser needed.',
+    sql: `GRANT pg_monitor TO monitor;`,
+  },
+  {
+    label: 'Allow connecting to each database',
+    note: 'Repeat for every database you want this user to connect to.',
+    sql: `GRANT CONNECT ON DATABASE postgres TO monitor;`,
+  },
+  {
+    label: 'Grant read access to tables (per database)',
+    note: 'Connect to each database first (\\c mydb), then run these three lines.',
+    sql: `GRANT USAGE ON SCHEMA public TO monitor;\nGRANT SELECT ON ALL TABLES IN SCHEMA public TO monitor;\nALTER DEFAULT PRIVILEGES IN SCHEMA public\n  GRANT SELECT ON TABLES TO monitor;`,
+  },
+];
+
+function PgSetupGuide() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="col-span-2 border border-sky-500/20 bg-sky-500/5 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-sky-500/10 transition-colors"
+      >
+        {open ? <ChevronDown className="w-3.5 h-3.5 text-sky-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
+        <span className="text-xs font-medium text-sky-300">How to create a read-only monitoring user</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-3 border-t border-sky-500/20">
+          <p className="text-[11px] text-zinc-400 pt-2.5 leading-relaxed">
+            Run these steps once on your PostgreSQL server (as a superuser). The <code className="bg-zinc-800 px-1 rounded text-sky-300">monitor</code> user will be able to view server stats and browse table data without being able to modify anything.
+          </p>
+          {PG_STEPS.map((step, i) => (
+            <div key={i} className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-zinc-800 border border-zinc-700 text-[10px] font-bold text-zinc-400 flex items-center justify-center shrink-0">{i + 1}</span>
+                <span className="text-[11px] font-medium text-zinc-300">{step.label}</span>
+              </div>
+              <p className="text-[11px] text-zinc-500 pl-5.5 ml-5">{step.note}</p>
+              <div className="flex items-start gap-1 ml-5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
+                <pre className="flex-1 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all leading-relaxed">{step.sql}</pre>
+                <CopyButton text={step.sql} />
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-zinc-600 pl-5 leading-relaxed">
+            Once done, enter <code className="bg-zinc-800 px-1 rounded text-zinc-300">monitor</code> as the username above and enable <strong className="text-zinc-400">Read-only</strong> mode below as an extra safeguard.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface ConnInfo { id: string; name: string; type: DbType; host: string; port: number; user: string; database?: string; readonly?: boolean; sslMode?: SslMode; sshHost?: string; sshPort?: number; sshUser?: string; }
 
@@ -199,6 +278,8 @@ export default function ConnectionPanel({ onClose }: Props) {
                     ))}
                   </div>
                 </div>
+
+                {form.type === 'postgres' && <PgSetupGuide />}
 
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">Host</label>
