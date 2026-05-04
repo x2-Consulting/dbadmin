@@ -18,6 +18,9 @@
     "react-dom": "19.2.4",
     "ssh2": "^1.17.0"
   },
+  "overrides": {
+    "dompurify": "^3.4.2"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
