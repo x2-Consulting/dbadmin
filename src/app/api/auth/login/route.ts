@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createToken, COOKIE, isSecureContext } from '@/lib/auth';
+import { timingSafeEqual, createHash } from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -70,7 +71,10 @@ export async function POST(req: NextRequest) {
   const { password } = await req.json();
   const expected = process.env.UI_PASSWORD;
 
-  if (!expected || password !== expected) {
+  const hash = (s: string) => createHash('sha256').update(s).digest();
+  const match = expected && timingSafeEqual(hash(String(password)), hash(expected));
+
+  if (!match) {
     recordAttempt(ip, false);
     return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
   }
