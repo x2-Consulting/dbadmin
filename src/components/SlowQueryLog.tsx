@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Gauge, RefreshCw, Loader2, AlertCircle, Clock, Hash } from 'lucide-react';
+import { Gauge, RefreshCw, Loader2, AlertCircle, Clock, Hash, Info } from 'lucide-react';
 import { useConn } from '@/context/ConnectionContext';
+
+type Period = 'hour' | 'day' | 'week' | 'all';
 
 interface SlowQuery {
   query: string;
@@ -11,28 +13,38 @@ interface SlowQuery {
   totalMs: number;
 }
 
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'hour', label: 'Last hour' },
+  { value: 'day',  label: 'Last 24h' },
+  { value: 'week', label: 'Last 7d' },
+  { value: 'all',  label: 'All time' },
+];
+
 export default function SlowQueryLog() {
   const { connId } = useConn();
+  const [isPg, setIsPg] = useState(false);
   const [queries, setQueries] = useState<SlowQuery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sortBy, setSortBy] = useState<keyof SlowQuery>('avgMs');
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [period, setPeriod] = useState<Period>('all');
 
-  async function load() {
+  async function load(p = period) {
     setLoading(true);
     setError('');
     try {
-      const r = await fetch(`/api/server/slow-queries?conn=${connId}`);
+      const r = await fetch(`/api/server/slow-queries?conn=${connId}&period=${p}`);
       const d = await r.json();
       if (d.error) { setError(d.error); return; }
       setQueries(d.queries || []);
+      setIsPg(d.isPg ?? false);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, [connId]);
+  useEffect(() => { load(); }, [connId, period]);
 
   const sorted = [...queries].sort((a, b) => Number(b[sortBy]) - Number(a[sortBy]));
 
@@ -50,16 +62,38 @@ export default function SlowQueryLog() {
 
   return (
     <div className="p-6 max-w-5xl">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Gauge className="w-5 h-5 text-orange-400" />
           <h2 className="text-sm font-semibold text-zinc-100">Top Queries</h2>
-          <span className="text-xs text-zinc-600">by performance_schema / pg_stat_statements</span>
         </div>
-        <button onClick={load} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
-          <RefreshCw className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {!isPg && (
+            <div className="flex items-center gap-1 bg-zinc-800/60 rounded-lg p-1">
+              {PERIODS.map(p => (
+                <button key={p.value} onClick={() => setPeriod(p.value)}
+                  className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
+                    period === p.value
+                      ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => load()} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
+
+      {isPg && (
+        <div className="flex items-start gap-2 text-xs text-zinc-500 bg-zinc-800/40 border border-zinc-700/50 rounded-lg px-3 py-2 mb-4">
+          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-zinc-600" />
+          pg_stat_statements accumulates since last reset — time filtering is not available. Use <code className="text-zinc-400">SELECT pg_stat_statements_reset();</code> to clear and start fresh.
+        </div>
+      )}
 
       {loading && (
         <div className="flex items-center gap-2 text-xs text-zinc-500 py-8 justify-center">
