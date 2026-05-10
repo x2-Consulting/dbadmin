@@ -81,7 +81,13 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 ### 2. Grant permissions to the DB user
 
-Run the following as a superuser (e.g. the `postgres` account) for the user you connect with in DB Admin:
+**Connect to the target database first** — the function grant is database-scoped and will fail if you run it from the `postgres` maintenance database or any other database where the extension isn't installed.
+
+```bash
+psql -U postgres -d your_database
+```
+
+Then run the following grants for the user you connect with in DB Admin:
 
 ```sql
 -- View top queries (see all users' queries, not just your own)
