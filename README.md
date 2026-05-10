@@ -49,7 +49,7 @@ A self-hosted web-based database administration tool for **MySQL**, **MariaDB**,
 - **ER diagram** — interactive force-directed relationship diagram; tables are nodes, FK constraints are edges; drag to reposition, zoom, pan, hover to highlight connections
 - **Data search** — search a term across all text columns in every table in a database; results show matched column and value with a link to the table
 - **Schema diff** — compare two databases (on any connection) and see tables/columns added, removed, or changed
-- **Top queries** — slowest queries by average execution time from `performance_schema` (MySQL) or `pg_stat_statements` (PostgreSQL)
+- **Top queries** — slowest queries by average execution time from `performance_schema` (MySQL) or `pg_stat_statements` (PostgreSQL); PostgreSQL includes a reset button to clear accumulated stats and start fresh
 - **Process list** — active connections with kill button
 - **Server variables** — full list of server configuration variables with search
 
