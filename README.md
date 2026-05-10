@@ -87,8 +87,10 @@ Run the following as a superuser (e.g. the `postgres` account) for the user you 
 -- View top queries (see all users' queries, not just your own)
 GRANT pg_monitor TO your_user;
 
--- Reset stats button
-GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO your_user;
+-- Reset stats button (PostgreSQL 12+)
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset(oid, oid, bigint) TO your_user;
+-- Reset stats button (PostgreSQL 11 and earlier)
+-- GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO your_user;
 ```
 
 If the DB user is already a **superuser**, both of these are granted automatically — no extra steps needed.
