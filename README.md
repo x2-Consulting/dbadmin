@@ -61,6 +61,42 @@ A self-hosted web-based database administration tool for **MySQL**, **MariaDB**,
 
 ---
 
+## PostgreSQL — pg_stat_statements setup
+
+The **Top Queries** panel requires the `pg_stat_statements` extension. The **Reset stats** button requires an additional permission on the reset function.
+
+### 1. Enable the extension
+
+Add `pg_stat_statements` to `shared_preload_libraries` in `postgresql.conf`, then **restart PostgreSQL**:
+
+```
+shared_preload_libraries = 'pg_stat_statements'
+```
+
+Then create the extension in each database you want to monitor (connect as a superuser):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+```
+
+### 2. Grant permissions to the DB user
+
+Run the following as a superuser (e.g. the `postgres` account) for the user you connect with in DB Admin:
+
+```sql
+-- View top queries (see all users' queries, not just your own)
+GRANT pg_monitor TO your_user;
+
+-- Reset stats button
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO your_user;
+```
+
+If the DB user is already a **superuser**, both of these are granted automatically — no extra steps needed.
+
+> **Note:** `pg_monitor` was introduced in PostgreSQL 10. On PostgreSQL 9.x, the user must be a superuser to view all queries.
+
+---
+
 ## Tech stack
 
 | Layer | Technology |
