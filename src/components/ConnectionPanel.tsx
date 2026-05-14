@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Pencil, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, CheckCircle2, AlertCircle, Loader2, Database, Server, Lock, ChevronDown, ChevronRight, Copy, Check, Star } from 'lucide-react';
 import type { DbType, SslMode } from '@/lib/connections';
 import { useConn } from '@/context/ConnectionContext';
 import { useToast } from '@/context/ToastContext';
@@ -107,6 +107,7 @@ export default function ConnectionPanel({ onClose }: Props) {
   const { connId, setConnId } = useConn();
   const { toast } = useToast();
   const [connections, setConnections] = useState<ConnInfo[]>([]);
+  const [defaultId, setDefaultId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -116,9 +117,14 @@ export default function ConnectionPanel({ onClose }: Props) {
   const [saveError, setSaveError] = useState('');
 
   async function loadConnections() {
-    const r = await fetch('/api/connections');
-    const d = await r.json();
-    setConnections(d.connections || []);
+    const [connsRes, defRes] = await Promise.all([
+      fetch('/api/connections'),
+      fetch('/api/connections/default'),
+    ]);
+    const connsData = await connsRes.json();
+    const defData = await defRes.json();
+    setConnections(connsData.connections || []);
+    setDefaultId(defData.defaultId ?? null);
   }
 
   useEffect(() => { loadConnections(); }, []);
@@ -187,9 +193,24 @@ export default function ConnectionPanel({ onClose }: Props) {
   async function deleteConn(id: string) {
     if (!confirm('Remove this connection?')) return;
     await fetch(`/api/connections/${id}`, { method: 'DELETE' });
-    if (connId === id) setConnId('default');
     await loadConnections();
+    if (connId === id) {
+      // Switch active connection to the new default
+      const defRes = await fetch('/api/connections/default');
+      const defData = await defRes.json();
+      setConnId(defData.defaultId ?? '');
+    }
     toast('Connection removed');
+  }
+
+  async function setAsDefault(id: string) {
+    await fetch('/api/connections/default', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setDefaultId(id);
+    toast('Default startup connection updated');
   }
 
   return (
@@ -209,6 +230,7 @@ export default function ConnectionPanel({ onClose }: Props) {
           {connections.map(c => {
             const meta = TYPE_DEFAULTS[c.type];
             const isActive = c.id === connId;
+            const isDefault = c.id === defaultId;
             return (
               <div key={c.id}
                 className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
@@ -223,6 +245,7 @@ export default function ConnectionPanel({ onClose }: Props) {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-zinc-100 truncate">{c.name}</span>
                     {isActive && <span className="text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded-full shrink-0">Active</span>}
+                    {isDefault && <span className="text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded-full shrink-0">Startup</span>}
                     {c.readonly && <Lock className="w-3 h-3 text-amber-400 shrink-0" aria-label="Read-only" />}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -233,19 +256,24 @@ export default function ConnectionPanel({ onClose }: Props) {
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
+                    onClick={e => { e.stopPropagation(); setAsDefault(c.id); }}
+                    className={`p-1.5 rounded-lg transition-colors ${isDefault ? 'text-amber-400' : 'text-zinc-700 hover:text-amber-400 hover:bg-amber-500/10'}`}
+                    title={isDefault ? 'Startup connection' : 'Set as startup connection'}
+                  >
+                    <Star className="w-3.5 h-3.5" fill={isDefault ? 'currentColor' : 'none'} />
+                  </button>
+                  <button
                     onClick={e => { e.stopPropagation(); editConn(c); }}
                     className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  {c.id !== 'default' && (
-                    <button
-                      onClick={e => { e.stopPropagation(); deleteConn(c.id); }}
-                      className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  <button
+                    onClick={e => { e.stopPropagation(); deleteConn(c.id); }}
+                    className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             );

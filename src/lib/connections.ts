@@ -34,10 +34,39 @@ export interface ConnPool {
 }
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'connections.json');
+const CONFIG_FILE = path.join(process.cwd(), 'data', 'config.json');
 const pools = new Map<string, ConnPool>();
 const tunnels = new Map<string, { server: net.Server; ssh: unknown }>();
 
-function defaultConn(): ConnectionConfig {
+interface AppConfig {
+  defaultConnectionId?: string | null;
+  bootstrapped?: boolean;
+}
+
+function readConfig(): AppConfig {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeConfig(cfg: AppConfig): void {
+  const dir = path.dirname(CONFIG_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  atomicWrite(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+}
+
+export function getDefaultId(): string | null {
+  const cfg = readConfig();
+  return cfg.defaultConnectionId ?? null;
+}
+
+export function setDefaultId(id: string | null): void {
+  writeConfig({ ...readConfig(), defaultConnectionId: id });
+}
+
+function envDefaultConn(): ConnectionConfig {
   return {
     id: 'default',
     name: process.env.DB_NAME || 'Local (default)',
@@ -75,12 +104,19 @@ export function listConnections(): ConnectionConfig[] {
   try {
     ensureDataFile();
     const saved: ConnectionConfig[] = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    const decrypted = saved.map(decryptConfig);
-    const savedDefault = decrypted.find(c => c.id === 'default');
-    const others = decrypted.filter(c => c.id !== 'default');
-    return [savedDefault ?? defaultConn(), ...others];
+    const cfg = readConfig();
+
+    // First-time bootstrap: materialize env-based connection into the file so it can be deleted/edited
+    if (!cfg.bootstrapped && saved.length === 0 && process.env.DB_HOST) {
+      const conn = envDefaultConn();
+      saveConnection(conn);
+      writeConfig({ ...cfg, bootstrapped: true, defaultConnectionId: conn.id });
+      return [conn];
+    }
+
+    return saved.map(decryptConfig);
   } catch {
-    return [defaultConn()];
+    return [];
   }
 }
 
